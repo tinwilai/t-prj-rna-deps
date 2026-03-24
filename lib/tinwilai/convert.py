@@ -1,3 +1,4 @@
+import logging
 from pathlib import Path
 
 import numpy as np
@@ -7,7 +8,7 @@ from Bio.Blast.NCBIXML import Blast
 from Bio.PDB.PDBParser import PDBParser
 from Bio.PDB.Structure import Structure
 from Bio.Seq import Seq
-from Bio.SeqIO.FastaIO import FastaWriter
+from Bio.SeqIO.FastaIO import FastaWriter, SimpleFastaParser
 from Bio.SeqRecord import SeqRecord
 
 
@@ -33,15 +34,23 @@ def pdb_to_c1p_coords(pdb_path: str, target_id: str) -> tuple[str, np.ndarray]:
     return sequence, coords
 
 
-def label_to_c1p_coords(sequences_csv_path: str, labels_csv_path: str, target_id: str) -> tuple[str, np.ndarray]:
+def label_to_c1p_coords(
+    sequences_csv_path: str, labels_csv_path: str, target_id: str
+) -> tuple[str, np.ndarray]:
     sequences_df = pd.read_csv(sequences_csv_path)
     labels_df = pd.read_csv(labels_csv_path)
-    sequence = sequences_df[sequences_df["target_id"] == target_id.upper()]["sequence"].iloc[0]
-    coords_df = labels_df[labels_df["ID"].str.contains(target_id.upper())].sort_values("resid")
+    sequence = sequences_df[sequences_df["target_id"] == target_id.upper()][
+        "sequence"
+    ].iloc[0]
+    coords_df = labels_df[labels_df["ID"].str.contains(target_id.upper())].sort_values(
+        "resid"
+    )
     return sequence, coords_df[["x_1", "y_1", "z_1"]].to_numpy()
 
 
-def coords_to_result_df(target_id: str, sequence: str, coords_list: np.ndarray) -> pd.DataFrame:
+def coords_to_result_df(
+    target_id: str, sequence: str, coords_list: np.ndarray
+) -> pd.DataFrame:
     df = pd.DataFrame()
     df["ID"] = [f"{target_id.upper()}_{resid}" for resid in range(len(sequence))]
     df["resname"] = list(sequence)
@@ -74,17 +83,64 @@ def seq_records_to_fasta(seq_records: list[SeqRecord], out_path: Path) -> None:
         writer.write_records(seq_records)
 
 
+def fasta_to_seq_records(in_path: Path) -> list[SeqRecord]:
+    records = []
+    with open(in_path) as handle:
+        for name, seq in SimpleFastaParser(handle):
+            record = SeqRecord(Seq(seq), id=name)
+            records.append(record)
+    return records
+
+
 def blast_record_to_generic(blast_record: Blast) -> MultipleSeqAlignment:
     hsps = [alignment.hsps[0] for alignment in blast_record.alignments]
     seq_records = [
         SeqRecord(
             Seq(
-                ("-" * (hsp.query_start - 1) + hsp.query[: hsp.align_length] + "-" * (blast_record.query_length - hsp.query_end))[
-                    : blast_record.query_length
-                ]
+                (
+                    "-" * (hsp.query_start - 1)
+                    + hsp.query[: hsp.align_length]
+                    + "-" * (blast_record.query_length - hsp.query_end)
+                )[: blast_record.query_length]
             ),
             id=f"{alignment.hit_id}({hsp.sbjct_start}-{hsp.sbjct_end}:{alignment.length})",
         )
         for hsp, alignment in zip(hsps, blast_record.alignments)
     ]
     return MultipleSeqAlignment(seq_records)
+
+
+def mmseqs_output_to_generic(in_path: Path) -> dict[str, MultipleSeqAlignment]:
+    msa_dict = {}
+    logger = logging.getLogger("T_prj.rna")
+
+    for line in open(in_path).readlines():
+        (
+            query,
+            target,
+            taln,
+            qlen,
+            qstart,
+            qend,
+            alnlen,
+        ) = line.rstrip("\n").split("\t")
+
+        qlen, qstart, qend, alnlen = map(int, (qlen, qstart, qend, alnlen))
+        record = SeqRecord(
+            Seq(("-" * (qstart - 1) + taln[:alnlen] + "-" * (qlen - qend))[:qlen]),
+            id=target,
+        )
+        if len(record.seq) != qlen:
+            logger.warning(
+                "    warning (mmseqs parse): qlen %d but msa len %d, skipping",
+                qlen,
+                len(record.seq),
+            )
+            continue
+
+        if query not in msa_dict:
+            msa_dict[query] = MultipleSeqAlignment([record])
+        else:
+            msa_dict[query].append(record)
+
+    return msa_dict
