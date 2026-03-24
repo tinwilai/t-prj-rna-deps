@@ -4,8 +4,6 @@ from pathlib import Path
 import logging
 import numpy as np
 import torch
-from torch import nn
-from torch.nn import DataParallel
 from rhofold.config import rhofold_config
 from rhofold.relax.relax import AmberRelaxation
 from rhofold.utils import save_ss2ct
