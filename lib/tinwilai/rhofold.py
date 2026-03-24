@@ -4,15 +4,18 @@ from pathlib import Path
 import logging
 import numpy as np
 import torch
+from torch import nn
+from torch.nn import DataParallel
 from rhofold.config import rhofold_config
 from rhofold.relax.relax import AmberRelaxation
-from rhofold.utils import get_device, save_ss2ct
+from rhofold.utils import save_ss2ct
 from rhofold.utils.alphabet import get_features
 from rhofold.rhofold import RhoFold
 from tinwilai.utils import remkdir
 
+logger = logging.getLogger("T_prj.rna")
 
-device = get_device(None)
+device = "cuda"
 
 
 @torch.no_grad()
@@ -34,9 +37,13 @@ def main(
         msa_path = input_path
     else:
         if msa_path is None:
-            raise ValueError("Single sequence mode is off. Please provide the input MSA file.")
+            raise ValueError(
+                "Single sequence mode is off. Please provide the input MSA file."
+            )
 
     data_dict = get_features(input_path, msa_path)
+
+    logger.info("    forward pass")
 
     # Forward pass
     outputs = model(
@@ -46,6 +53,8 @@ def main(
     )
 
     output = outputs[-1]
+
+    logger.info("    saving results")
 
     # Secondary structure, .ct format
     ss_prob_map = torch.sigmoid(output["ss"][0, 0]).data.cpu().numpy()
@@ -73,6 +82,8 @@ def main(
         confidence=output["plddt"][0].data.cpu().numpy(),
     )
 
+    logger.info("    relaxing")
+
     # Amber relaxation
     if device == "cpu":
         use_gpu = False
@@ -83,7 +94,9 @@ def main(
         devnull_logger = logging.Logger("devnull")
         devnull_logger.addHandler(logging.NullHandler())
         if relax_steps > 0:
-            amber_relax = AmberRelaxation(max_iterations=relax_steps, logger=devnull_logger, use_gpu=use_gpu)
+            amber_relax = AmberRelaxation(
+                max_iterations=relax_steps, logger=devnull_logger, use_gpu=use_gpu
+            )
             amber_relax.process(str(unrelaxed_model_path), str(relaxed_model_path))
 
     return unrelaxed_model_path, relaxed_model_path
@@ -92,14 +105,12 @@ def main(
 def load_model(model_path: Path) -> RhoFold:
     model = RhoFold(rhofold_config)
 
-    model.load_state_dict(torch.load(model_path, map_location=torch.device("cpu"))["model"])
+    model.load_state_dict(
+        torch.load(model_path, map_location=torch.device("cpu"))["model"]
+    )
     model.eval()
 
-    model = model.to(device)
-
-    # https://docs.pytorch.org/tutorials/beginner/blitz/data_parallel_tutorial.html
-    if torch.cuda.is_available():
-        model = torch.nn.DataParallel(model).module
+    model.to(device)
 
     return model
 
