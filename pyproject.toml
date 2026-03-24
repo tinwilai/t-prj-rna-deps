@@ -52,13 +52,13 @@ dev = [
 
 [tool.uv.sources]
 apex = { path = "./files/whl/apex-0.1-cp312-cp312-linux_x86_64.whl" }
-torch = [{ index = "pytorch-cu124" }]
+torch = [{ index = "pytorch-cu126" }]
 pyrosetta = [{ index = "rosettacommons" }]
 
 # https://docs.astral.sh/uv/guides/integration/pytorch/
 [[tool.uv.index]]
-name = "pytorch-cu124"
-url = "https://download.pytorch.org/whl/cu124"
+name = "pytorch-cu126"
+url = "https://download.pytorch.org/whl/cu126"
 explicit = true
 
 # https://www.pyrosetta.org/downloads#h.yscr0432xlk9
