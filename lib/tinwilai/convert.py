@@ -46,7 +46,7 @@ def coords_to_result_df(target_id: str, sequence: str, coords_list: np.ndarray) 
     df["ID"] = [f"{target_id.upper()}_{resid}" for resid in range(len(sequence))]
     df["resname"] = list(sequence)
     df["resid"] = [resid for resid in range(len(sequence))]
-    for i, coords in enumerate(coords_list):
+    for i, coords in enumerate(coords_list, 1):
         x, y, z = coords.T
         df[f"x_{i}"] = x
         df[f"y_{i}"] = y

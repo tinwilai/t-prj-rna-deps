@@ -4,6 +4,7 @@ from pathlib import Path
 
 import numpy as np
 import torch
+from torch.nn import DataParallel
 from rhofold.config import rhofold_config
 from rhofold.relax.relax import AmberRelaxation
 from rhofold.utils import get_device, save_ss2ct, timing
@@ -101,7 +102,7 @@ def main(
                 amber_relax.process(unrelaxed_model, relaxed_model)
 
 
-def load_model(model_path: Path) -> RhoFold:
+def load_model(model_path: Path) -> RhoFold | DataParallel[RhoFold]:
     logger.info("Constructing RhoFold+")
     model = RhoFold(rhofold_config)
 
@@ -111,6 +112,10 @@ def load_model(model_path: Path) -> RhoFold:
 
     logger.info(f"    Inference using device {device}")
     model = model.to(device)
+
+    # https://docs.pytorch.org/tutorials/beginner/blitz/data_parallel_tutorial.html
+    if torch.cuda.is_available():
+        model = torch.nn.DataParallel(model)
 
     return model
 

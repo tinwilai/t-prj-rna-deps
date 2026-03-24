@@ -1,0 +1,69 @@
+[project]
+name = "t-prj-rna"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = "==3.12.12"
+dependencies = [
+    # main
+    "biopython",
+    "numpy",
+    "pandas",
+
+    # rhofold
+    "apex",
+    "einops",
+    "openmm",
+    "openmm-cuda-12",
+    "torch",
+    "torchvision",
+    "ml-collections",
+    "matplotlib",
+
+    # trRNA2
+    # "biopython",
+    # "numpy",
+    # "pandas",
+    # "torch",
+    # "absl-py",
+    # "pyrosetta",
+    # "sympy",
+    # "tqdm",
+    # "dm-tree",
+    # "einops",
+    # "ml-collections",
+    # "scipy",
+    # "torch-geometric",
+]
+
+[dependency-groups]
+dev = [
+    # jupyter
+    "ipython",
+    "ipykernel",
+
+    # dl_db
+    "httpx",
+    "rapidgzip",
+
+    # kaggle
+    "kaggle",
+]
+
+[tool.uv.sources]
+apex = { path = "./files/whl/apex-0.1-cp312-cp312-linux_x86_64.whl" }
+torch = [{ index = "pytorch-cu128" }]
+pyrosetta = [{ index = "rosettacommons" }]
+
+# https://docs.astral.sh/uv/guides/integration/pytorch/
+[[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true
+
+# https://www.pyrosetta.org/downloads#h.yscr0432xlk9
+# https://docs.astral.sh/uv/concepts/indexes/#flat-indexes
+[[tool.uv.index]]
+name = "rosettacommons"
+url = "https://west.rosettacommons.org/pyrosetta/quarterly/release"
+format = "flat"
