@@ -86,14 +86,14 @@ def basic_folding(your_pose):
     return lowest_pose
 
 
-def generate_start_model(seq):
+def generate_start_model(tmpdir, seq):
     assembler = core.import_pose.RNA_HelixAssembler()
     # print(seq)
     initpose = assembler.build_init_pose(seq, "")  # helix pose
-    initpose.dump_pdb("init.pdb")
+    initpose.dump_pdb(tmpdir / "init.pdb")
     pose = basic_folding(initpose)
     pose.remove_constraints()
-    pose.dump_pdb("init_basic.pdb")
+    pose.dump_pdb(tmpdir / "init_basic.pdb")
     return pose
 
 
@@ -262,7 +262,7 @@ def fold_single(args, i):
     )
     clash_mover.max_iter(200)
 
-    pose = generate_start_model(seq.lower())
+    pose = generate_start_model(args.tmpdir, seq.lower())
 
     # step 1. fold with high-confidence restraints
     logger.debug("      folding with high-confidence restraints")

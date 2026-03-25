@@ -88,3 +88,17 @@ def stats(
     logger.info(offset_str + "  avg: %.3f s", arr.mean())
     logger.info(offset_str + "  min: %.3f s", arr.min())
     logger.info(offset_str + "  max: %.3f s", arr.max())
+
+
+def rerange(
+    old_range: tuple[float, float],
+    new_range: tuple[float, float],
+    old_value: int,
+    limit_range: tuple[float, float] | None = None,
+) -> int:
+    frac = (old_value - old_range[0]) / (old_range[1] - old_range[0])
+    new_value = new_range[0] + frac * (new_range[1] - new_range[0])
+    if limit_range is not None:
+        new_value = max(new_value, limit_range[0])
+        new_value = min(new_value, limit_range[1])
+    return round(new_value)
