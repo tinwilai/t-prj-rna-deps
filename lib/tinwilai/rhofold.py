@@ -80,7 +80,8 @@ def main(
         chain_id=None,
         confidence=output["plddt"][0].data.cpu().numpy(),
     )
-    # output_paths.append(unrelaxed_model_path)
+    if relax_steps == 0:
+        output_paths.append(unrelaxed_model_path)
 
     # Amber relaxation
     if device == "cpu":

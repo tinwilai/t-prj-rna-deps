@@ -233,7 +233,8 @@ def main(
             npz.replace(".npz", f"_c{c}.npz") if c < config["max_recycle"] else npz,
             **npz_dict,
         )
-    # output_paths.append(unrelaxed_model)
+    if relax_steps == 0:
+        output_paths.append(unrelaxed_model)
 
     table = pd.DataFrame()
     for i in range(len(raw_seq)):
