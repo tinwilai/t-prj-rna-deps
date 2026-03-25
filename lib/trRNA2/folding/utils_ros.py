@@ -90,10 +90,10 @@ def generate_start_model(tmpdir, seq):
     assembler = core.import_pose.RNA_HelixAssembler()
     # print(seq)
     initpose = assembler.build_init_pose(seq, "")  # helix pose
-    initpose.dump_pdb(tmpdir / "init.pdb")
+    initpose.dump_pdb(f"{tmpdir}/init.pdb")
     pose = basic_folding(initpose)
     pose.remove_constraints()
-    pose.dump_pdb(tmpdir / "init_basic.pdb")
+    pose.dump_pdb(f"{tmpdir}/init_basic.pdb")
     return pose
 
 
