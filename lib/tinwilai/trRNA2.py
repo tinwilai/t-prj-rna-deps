@@ -19,9 +19,9 @@ device = "cuda"
 
 def predict(
     model: Folding,
-    seq,
-    msa,
-    ss,
+    seq: str,
+    msa: torch.Tensor,
+    ss: torch.Tensor | None,
     config: dict,
     num_recycles: int,
     nrows: int,
@@ -143,7 +143,7 @@ def main(
 
     rosetta_dir_str = str(rosetta_dir)
     msa_path_str = str(msa_path)
-    fas_str = str(fas)
+    fas_str = str(fas) if fas is not None else None
 
     if pyrosetta:
         assert fas_str is not None, (
@@ -355,6 +355,6 @@ def run(
         "dot_bracket",
         cpu=os.cpu_count(),
         relax_steps=relax_steps,
-        pyrosetta=input_dbn_path is not None,
+        pyrosetta=input_seq_path is not None,
         fas=input_seq_path,
     )
