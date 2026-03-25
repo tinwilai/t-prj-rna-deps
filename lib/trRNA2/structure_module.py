@@ -11,218 +11,26 @@
 # limitations under the License.
 
 import math
-from typing import Optional, Tuple, Sequence
-
-from rhofold.model.primitives import Linear, LayerNorm
-from rhofold.utils.rigid_utils import Rigid
-
-from rhofold.utils.tensor_utils import (
-    dict_multimap,
-    permute_final_dims,
-    flatten_final_dims,
-)
+from typing import Optional, Tuple, Sequence, Union
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from einops import rearrange
-from rhofold.utils.alphabet import RNAAlphabet
-from rhofold.utils.converter import RNAConverter
+from .utils_3d.converter import RNAConverter
 
+from .utils_3d.primitives import Linear, LayerNorm
+from .utils_3d.rigid_utils import Rigid
 
-class RefineNet(nn.Module):
-    """"""
-
-    def __init__(self, dim=64, is_pos_emb=True, n_layer=4, enable=True, **kwargs):
-        """Constructor function."""
-
-        super().__init__()
-
-        self.is_pos_emb = is_pos_emb
-        self.alphabet = RNAAlphabet.from_architecture("RNA")
-        self.embed_tokens = nn.Embedding(len(self.alphabet), dim)
-        self.enable = enable
-
-        if self.is_pos_emb:
-            self.embed_positions = PosEmbedding(4096, dim, self.alphabet.padding_idx)
-
-        self.refine_layer0 = ResEGNN(corrections=n_layer, dims_in=dim)
-        self.refine_layer1 = ResEGNN(corrections=n_layer, dims_in=dim)
-        self.refine_layer2 = ResEGNN(corrections=n_layer, dims_in=dim)
-        self.refine_layer3 = ResEGNN(corrections=n_layer, dims_in=dim)
-
-    def forward(self, tokens, cords):
-        """Perform the forward pass.
-
-        Args:
-
-        Returns:
-        """
-
-        if not self.enable:
-            return cords
-
-        tokens = tokens[:, 0, :]
-        tokens = tokens.unsqueeze(-1).repeat(1, 1, 23)
-        b, l, n = tokens.shape
-        cords = cords.reshape([b, l, n, 3])
-
-        fea = self.embed_tokens(tokens)
-
-        b, l, n, _ = fea.shape
-
-        if self.is_pos_emb:
-            fea += self.embed_positions(tokens.reshape(b * l, n)).view(fea.size())
-
-        out = self.refine_layer0(
-            fea.reshape([b * l, n, -1]), cords.reshape([b * l, n, -1]), is_fea=True
-        )
-        fea, cords = out[-1]
-
-        fea = fea.reshape([b, l, n, -1]).transpose(1, 2)
-        cords = cords.reshape([b, l, n, -1]).transpose(1, 2)
-
-        out = self.refine_layer1(
-            fea.reshape([b * n, l, -1]), cords.reshape([b * n, l, -1]), is_fea=True
-        )
-        fea, cords = out[-1]
-
-        fea = fea.reshape([b, n, l, -1]).transpose(1, 2)
-        cords = cords.reshape([b, n, l, -1]).transpose(1, 2)
-
-        out = self.refine_layer2(
-            fea.reshape([b * l, n, -1]), cords.reshape([b * l, n, -1]), is_fea=True
-        )
-        fea, cords = out[-1]
-
-        fea = fea.reshape([b, l, n, -1]).transpose(1, 2)
-        cords = cords.reshape([b, l, n, -1]).transpose(1, 2)
-
-        out = self.refine_layer3(
-            fea.reshape([b * n, l, -1]), cords.reshape([b * n, l, -1]), is_fea=True
-        )
-        fea, cords = out[-1]
-
-        cords = cords.reshape([b, n, l, -1]).transpose(1, 2)
-
-        cords = cords.reshape([b, l * n, 3])
-
-        return cords
-
-
-class Swish_(torch.nn.Module):
-    def forward(self, x):
-        return x * x.sigmoid()
-
-
-SiLU = torch.nn.SiLU if hasattr(torch.nn, "SiLU") else Swish_
-
-
-class CoorsNorm(torch.nn.Module):
-    def __init__(self, eps=1e-8):
-        super().__init__()
-        self.eps = eps
-        self.fn = torch.nn.LayerNorm(1)
-
-    def forward(self, coors):
-        norm = coors.norm(dim=-1, keepdim=True)
-        normed_coors = coors / norm.clamp(min=self.eps)
-        phase = self.fn(norm)
-        return phase * normed_coors
-
-
-# classes
-class EGNN(torch.nn.Module):
-    def __init__(
-        self,
-        dim,
-        m_dim=32,
-    ):
-        super().__init__()
-        """
-        # Most of the code in this file is based on egnn-pytorch by lucidrains.
-        """
-
-        edge_input_dim = (dim * 2) + 1
-
-        self.edge_mlp = torch.nn.Sequential(
-            torch.nn.Linear(edge_input_dim, edge_input_dim * 2),
-            SiLU(),
-            torch.nn.Linear(edge_input_dim * 2, m_dim),
-            SiLU(),
-        )
-
-        self.coors_norm = CoorsNorm()
-
-        self.node_mlp = torch.nn.Sequential(
-            torch.nn.Linear(dim + m_dim, dim * 2),
-            SiLU(),
-            torch.nn.Linear(dim * 2, dim),
-        )
-
-        self.coors_mlp = torch.nn.Sequential(
-            torch.nn.Linear(m_dim, m_dim * 4), SiLU(), torch.nn.Linear(m_dim * 4, 1)
-        )
-
-    def forward(self, feats, coors):
-
-        rel_coors = rearrange(coors, "b i d -> b i () d") - rearrange(
-            coors, "b j d -> b () j d"
-        )
-        rel_dist = (rel_coors**2).sum(dim=-1, keepdim=True)
-
-        feats_j = rearrange(feats, "b j d -> b () j d")
-        feats_i = rearrange(feats, "b i d -> b i () d")
-        feats_i, feats_j = torch.broadcast_tensors(feats_i, feats_j)
-
-        edge_input = torch.cat((feats_i, feats_j, rel_dist), dim=-1)
-
-        m_ij = self.edge_mlp(edge_input)
-
-        coor_weights = self.coors_mlp(m_ij)
-        coor_weights = rearrange(coor_weights, "b i j () -> b i j")
-
-        rel_coors = self.coors_norm(rel_coors)
-
-        scale_factor = 1 / 50.0
-        coors_out = (
-            torch.einsum(
-                "b i j, b i j c -> b i c", coor_weights * scale_factor, rel_coors
-            )
-            + coors
-        )
-
-        m_i = m_ij.sum(dim=-2)
-
-        node_mlp_input = torch.cat((feats, m_i), dim=-1)
-        node_out = self.node_mlp(node_mlp_input) + feats
-
-        return node_out, coors_out
-
-
-class ResEGNN(torch.nn.Module):
-    def __init__(self, corrections=4, dims_in=41, **kwargs):
-        super().__init__()
-        self.layers = torch.nn.ModuleList(
-            [EGNN(dim=dims_in, **kwargs) for _ in range(corrections)]
-        )
-
-    def forward(self, amino, geom, is_fea=False, keep_last_cords=None):
-        output = []
-        for layer in self.layers:
-            geom_init = geom
-            amino, geom = layer(amino, geom)
-            if keep_last_cords is not None:
-                geom[:, -keep_last_cords:] = geom_init[:, -keep_last_cords:]
-            output.append([amino, geom])
-
-        return output if is_fea else geom
+from .utils_3d.tensor_utils import (
+    dict_multimap,
+    permute_final_dims,
+    flatten_final_dims,
+)
 
 
 class PosEmbedding(nn.Embedding):
-    """ """
-
-    def __init__(self, num_embeddings: int, embedding_dim: int, padding_idx: int):
+    def __init__(self, num_embeddings: int, embedding_dim: int, padding_idx=None):
         if padding_idx is not None:
             num_embeddings_ = num_embeddings + padding_idx + 1
         else:
@@ -232,10 +40,14 @@ class PosEmbedding(nn.Embedding):
 
     def forward(self, input: torch.Tensor):
         """Input is expected to be of size [bsz x seqlen]."""
-        mask = input.ne(self.padding_idx).int()
-        positions = (
-            torch.cumsum(mask, dim=1).type_as(mask) * mask
-        ).long() + self.padding_idx
+        if self.padding_idx is None:
+            mask = torch.ones_like(input).int()
+        else:
+            mask = input.ne(self.padding_idx).int()
+
+        positions = (torch.cumsum(mask, dim=1).type_as(mask) * mask).long()
+        if self.padding_idx is not None:
+            positions = positions + self.padding_idx
         return F.embedding(
             positions,
             self.weight,
@@ -264,7 +76,6 @@ class AngleResnetBlock(nn.Module):
         self.relu = nn.ReLU()
 
     def forward(self, a: torch.Tensor) -> torch.Tensor:
-
         s_initial = a
 
         a = self.relu(a)
@@ -356,11 +167,25 @@ class AngleResnet(nn.Module):
         return unnormalized_s, s
 
 
-class InvariantPointAttention(nn.Module):
-    """
-    Implements Algorithm 22.
-    """
+def weighted_softmax(x, weights, dim=-1, ss_usage="multiply"):
+    max_x = x.max(dim=dim, keepdim=True).values
+    exp_x = torch.exp(x - max_x)
 
+    if ss_usage in ["linear", "multiply"]:
+        weighted_exp_x = exp_x * weights
+    elif ss_usage == "sum":
+        weighted_exp_x = exp_x + weights
+    else:
+        raise ValueError(
+            f'ss_usage {ss_usage} not supported, should be "multiply" or "sum"'
+        )
+
+    softmax_x = weighted_exp_x / torch.sum(weighted_exp_x, dim=dim, keepdim=True)
+
+    return softmax_x
+
+
+class InvariantPointAttention(nn.Module):
     def __init__(
         self,
         c_s: int,
@@ -371,22 +196,9 @@ class InvariantPointAttention(nn.Module):
         no_v_points: int,
         inf: float = 1e5,
         eps: float = 1e-8,
+        ss_usage="multiply",
     ):
-        """
-        Args:
-            c_s:
-                Single representation channel dimension
-            c_z:
-                Pair representation channel dimension
-            c_hidden:
-                Hidden channel dimension
-            no_heads:
-                Number of attention heads
-            no_qk_points:
-                Number of query/key points to generate
-            no_v_points:
-                Number of value points to generate
-        """
+
         super(InvariantPointAttention, self).__init__()
 
         self.c_s = c_s
@@ -423,15 +235,24 @@ class InvariantPointAttention(nn.Module):
         self.softmax = nn.Softmax(dim=-1)
         self.softplus = nn.Softplus()
 
+        self.ss_usage = ss_usage
+        if ss_usage == "linear":
+            self.linear_ss = nn.Conv2d(1, no_heads, 1)
+
     def forward(
         self,
         s: torch.Tensor,
         z: Optional[torch.Tensor],
         r: Rigid,
         mask: torch.Tensor,
+        ss: torch.Tensor = None,
+        t_ss: float = 1,
+        s_bias: torch.Tensor = None,
+        a_bias: torch.Tensor = None,
         _offload_inference: bool = False,
         _z_reference_list: Optional[Sequence[torch.Tensor]] = None,
-    ) -> torch.Tensor:
+        return_attn: bool = False,
+    ) -> Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
         """
         Args:
             s:
@@ -442,6 +263,9 @@ class InvariantPointAttention(nn.Module):
                 [*, N_res] transformation object
             mask:
                 [*, N_res] mask
+            ss
+                [*, N_res, N_res]
+            t_ss: temperature for SS
         Returns:
             [*, N_res, C_s] single representation update
         """
@@ -450,6 +274,10 @@ class InvariantPointAttention(nn.Module):
         #######################################
         # Generate scalar and point activations
         #######################################
+
+        if s_bias is not None:
+            s = s + self.proj_bias1d(s_bias)
+
         # [*, N_res, H * C_hidden]
         q = self.linear_q(s)
         kv = self.linear_kv(s)
@@ -490,11 +318,12 @@ class InvariantPointAttention(nn.Module):
             kv_pts, [self.no_qk_points, self.no_v_points], dim=-2
         )
 
-        # [*, N_res, N_res, H]
-        b = self.linear_b(z[0])
+        if z[0] is not None:
+            # [*, N_res, N_res, H]
+            b = self.linear_b(z[0])
 
-        if _offload_inference:
-            z[0] = z[0].cpu()
+            if _offload_inference:
+                z[0] = z[0].cpu()
 
         # [*, H, N_res, N_res]
         a = torch.matmul(
@@ -502,7 +331,8 @@ class InvariantPointAttention(nn.Module):
             permute_final_dims(k, (1, 2, 0)),  # [*, H, C_hidden, N_res]
         )
         a *= math.sqrt(1.0 / (3 * self.c_hidden))
-        a += math.sqrt(1.0 / 3) * permute_final_dims(b, (2, 0, 1))
+        if z[0] is not None:
+            a += math.sqrt(1.0 / 3) * permute_final_dims(b, (2, 0, 1))
 
         # [*, N_res, N_res, H, P_q, 3]
         pt_att = q_pts.unsqueeze(-4) - k_pts.unsqueeze(-5)
@@ -531,7 +361,23 @@ class InvariantPointAttention(nn.Module):
 
         a = a + pt_att
         a = a + square_mask.unsqueeze(-3)
-        a = self.softmax(a)
+        if a_bias is not None:
+            a = a + self.proj_bias2d(a_bias)
+
+        if ss is None:
+            a = self.softmax(a)
+        else:
+            if not hasattr(self, "ss_usage"):
+                self.ss_usage = "multiply"
+            batch_size, _, length, _ = a.size()
+            ss = ss.view(batch_size, length, length)
+            if t_ss is None or self.ss_usage == "sum":
+                weights = ss
+            elif self.ss_usage == "linear":
+                weights = self.linear_ss(ss.view(batch_size, 1, length, length))
+            else:
+                weights = torch.exp(ss / t_ss) - 0.99
+            a = weighted_softmax(a, weights, dim=-1, ss_usage=self.ss_usage)
 
         # [*, N_res, H, C_hidden]
         o = torch.matmul(a, v.transpose(-2, -3).to(dtype=a.dtype)).transpose(-2, -3)
@@ -560,22 +406,30 @@ class InvariantPointAttention(nn.Module):
         # [*, N_res, H * P_v, 3]
         o_pt = o_pt.reshape(*o_pt.shape[:-3], -1, 3)
 
-        if _offload_inference:
-            z[0] = z[0].to(o_pt.device)
+        if z[0] is not None:
+            if _offload_inference:
+                z[0] = z[0].to(o_pt.device)
 
-        # [*, N_res, H, C_z]
-        o_pair = torch.matmul(a.transpose(-2, -3), z[0].to(dtype=a.dtype))
+            # [*, N_res, H, C_z]
+            o_pair = torch.matmul(a.transpose(-2, -3), z[0].to(dtype=a.dtype))
 
-        # [*, N_res, H * C_z]
-        o_pair = flatten_final_dims(o_pair, 2)
+            # [*, N_res, H * C_z]
+            o_pair = flatten_final_dims(o_pair, 2)
 
-        # [*, N_res, C_s]
-        s = self.linear_out(
-            torch.cat((o, *torch.unbind(o_pt, dim=-1), o_pt_norm, o_pair), dim=-1).to(
-                dtype=z[0].dtype
+            # [*, N_res, C_s]
+            s = self.linear_out(
+                torch.cat(
+                    (o, *torch.unbind(o_pt, dim=-1), o_pt_norm, o_pair), dim=-1
+                ).to(dtype=z[0].dtype)
             )
-        )
-
+        else:
+            s = self.linear_out(
+                torch.cat((o, *torch.unbind(o_pt, dim=-1), o_pt_norm), dim=-1).to(
+                    dtype=s.dtype
+                )
+            )
+        if return_attn:
+            return s, a
         return s
 
 
@@ -672,41 +526,9 @@ class StructureModule(nn.Module):
         no_resnet_blocks,
         no_angles,
         trans_scale_factor,
-        refinenet,
-        **kwargs,
+        ss_usage="multiply",
+        time_aware=False,
     ):
-        """
-        Args:
-            c_s:
-                Single representation channel dimension
-            c_z:
-                Pair representation channel dimension
-            c_ipa:
-                IPA hidden channel dimension
-            c_resnet:
-                Angle resnet (Alg. 23 lines 11-14) hidden channel dimension
-            no_heads_ipa:
-                Number of IPA heads
-            no_qk_points:
-                Number of query/key points to generate during IPA
-            no_v_points:
-                Number of value points to generate during IPA
-            no_blocks:
-                Number of structure module blocks
-            no_transition_layers:
-                Number of layers in the single representation transition
-                (Alg. 23 lines 8-9)
-            no_resnet_blocks:
-                Number of blocks in the angle resnet
-            no_angles:
-                Number of angles to generate in the angle resnet
-            trans_scale_factor:
-                Scale of single representation transition hidden dimension
-            epsilon:
-                Small number used in angle resnet normalization
-            inf:
-                Large number used for attention masking
-        """
         super(StructureModule, self).__init__()
 
         self.c_s = c_s
@@ -728,6 +550,9 @@ class StructureModule(nn.Module):
         self.group_idx = None
         self.atom_mask = None
         self.lit_positions = None
+        self.time_aware = time_aware
+        if time_aware:
+            self.t_embedder = nn.Embedding(no_blocks, self.c_s)
 
         self.layer_norm_s = LayerNorm(self.c_s)
         self.layer_norm_z = LayerNorm(self.c_z)
@@ -743,6 +568,7 @@ class StructureModule(nn.Module):
             self.no_v_points,
             inf=self.inf,
             eps=self.epsilon,
+            ss_usage=ss_usage,
         )
 
         self.layer_norm_ipa = LayerNorm(self.c_s)
@@ -762,34 +588,25 @@ class StructureModule(nn.Module):
             self.epsilon,
         )
 
-        self.refinenet = RefineNet(**refinenet) if refinenet.enable else None
-
         self.converter = RNAConverter()
+
+        self.ss_usage = ss_usage
 
     def forward(
         self,
         seq,
-        msa_tokens,
-        e2eformer_output_dict,
+        reprs,
+        ss=None,
+        use_t_ss=True,
+        t_ss=[2**i for i in range(8)],
         mask=None,
         rigids=None,
         _offload_inference=False,
         _no_blocks=None,
+        return_mid=False,
+        allatm=True,
     ):
-        """
-        Args:
-            e2eformer_output_dict:
-                Dictionary containing:
-                    "single":
-                        [*, N_res, C_s] single representation
-                    "pair":
-                        [*, N_res, N_res, C_z] pair representation
-            mask:
-                Optional [*, N_res] sequence mask
-        Returns:
-            A dictionary of outputs
-        """
-        s = e2eformer_output_dict["single"]
+        s = reprs["single"]
 
         if mask is None:
             # [*, N]
@@ -798,14 +615,15 @@ class StructureModule(nn.Module):
         # [*, N, C_s]
         s = self.layer_norm_s(s)
 
-        # [*, N, N, C_z]
-        z = self.layer_norm_z(e2eformer_output_dict["pair"])
-
         z_reference_list = None
-        if _offload_inference:
-            e2eformer_output_dict["pair"] = e2eformer_output_dict["pair"].cpu()
-            z_reference_list = [z]
-            z = None
+        z = None
+        if reprs["pair"] is not None:
+            # [*, N, N, C_z]
+            z = self.layer_norm_z(reprs["pair"])
+            if _offload_inference:
+                reprs["pair"] = reprs["pair"].cpu()
+                z_reference_list = [z]
+                z = None
 
         # [*, N, C_s]
         s_initial = s
@@ -819,24 +637,39 @@ class StructureModule(nn.Module):
                 s.device,
                 self.training,
                 fmt="quat",
+                # fmt="rot_mat",
             )
             if rigids is None
             else rigids
         )
 
         outputs = []
-
+        grad_s = None
+        grad_a = None
         n_blocks_act = self.no_blocks if _no_blocks is None else _no_blocks
+        if not hasattr(self, "time_aware"):
+            self.time_aware = False
         for i in range(n_blocks_act):
+            if self.time_aware:
+                s = s + self.t_embedder(torch.Tensor([i]).long().to(s.device)).view(
+                    1, 1, -1
+                )
             # [*, N, C_s]
-            s = s + self.ipa(
+            ds, a = self.ipa(
                 s,
                 z,
                 rigids,
                 mask,
+                ss=ss,
+                t_ss=t_ss[i] if use_t_ss else None,
+                s_bias=grad_s,
+                a_bias=grad_a,
                 _offload_inference=_offload_inference,
                 _z_reference_list=z_reference_list,
+                return_attn=True,
             )
+
+            s = s + ds
             s = self.layer_norm_ipa(s)
             s = self.transition(s)
 
@@ -863,23 +696,41 @@ class StructureModule(nn.Module):
         del z, z_reference_list
 
         if _offload_inference:
-            e2eformer_output_dict["pair"] = e2eformer_output_dict["pair"].to(s.device)
+            reprs["pair"] = reprs["pair"].to(s.device)
 
         outputs = dict_multimap(torch.stack, outputs)
+        outputs["unscaled_rigids"] = rigids
 
-        cords, mask = self.converter.build_cords(
-            seq, outputs["frames"][-1], outputs["angles"][-1], rtn_cmsk=True
-        )
-        cord_list = [[cords, mask]]
-        if self.refinenet is not None:
+        if allatm:
+            if return_mid:
+                cord_list = []
+                for frames, angles in zip(outputs["frames"], outputs["angles"]):
+                    cords, mask, atm_name, fram_dict = self.converter.build_cords(
+                        seq, frames, angles, rtn_cmsk=True
+                    )
+                    cord_list.append([cords, mask, atm_name, fram_dict])
+            else:
+                cords, mask, atm_name, fram_dict = self.converter.build_cords(
+                    seq, outputs["frames"][-1], outputs["angles"][-1], rtn_cmsk=True
+                )
+                cord_list = [[cords, mask, atm_name, fram_dict]]
+            if s.shape[1] > 100:
+                torch.cuda.empty_cache()
             outputs["cord_tns_pred"] = [
-                self.refinenet(msa_tokens, cord[0].reshape([s.shape[0], -1, 3]))
+                rearrange(
+                    rearrange(cord[0], "(b l) n d->b (l n) d", b=s.shape[0]),
+                    "b (l n) d->b n l d",
+                    l=s.shape[1],
+                )
                 for cord in cord_list
             ]
-        else:
-            outputs["cord_tns_pred"] = [
-                cord[0].reshape([s.shape[0], -1, 3]) for cord in cord_list
-            ]
-        outputs["cords_c1'"] = [cord[0][:, 1, :].unsqueeze(0) for cord in cord_list]
+
+            outputs["cmask"] = [cord[1].permute(1, 0)[None] for cord in cord_list]
+            outputs["atm_name"] = [cord[2].T[None] for cord in cord_list]
+            outputs["cords_c1'"] = [cord[0][:, 1, :].unsqueeze(0) for cord in cord_list]
+            outputs["frames_allatm"] = {
+                k: torch.stack([cord[3][k] for cord in cord_list], dim=0)
+                for k in ["angl_0", "angl_1", "angl_2", "angl_3"]
+            }
 
         return outputs

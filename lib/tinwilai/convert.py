@@ -1,4 +1,3 @@
-import logging
 from pathlib import Path
 
 import numpy as np
@@ -10,6 +9,7 @@ from Bio.PDB.Structure import Structure
 from Bio.Seq import Seq
 from Bio.SeqIO.FastaIO import FastaWriter, SimpleFastaParser
 from Bio.SeqRecord import SeqRecord
+from tinwilai.logger import logger
 
 
 def structure_to_c1p_coords(structure: Structure) -> tuple[str, np.ndarray]:
@@ -25,7 +25,7 @@ def structure_to_c1p_coords(structure: Structure) -> tuple[str, np.ndarray]:
 
 
 def pdb_to_c1p_coords(pdb_path: str, target_id: str) -> tuple[str, np.ndarray]:
-    pdb_parser = PDBParser()
+    pdb_parser = PDBParser(QUIET=True)
     predicted_structure = pdb_parser.get_structure(
         target_id.upper(),
         pdb_path,
@@ -112,7 +112,6 @@ def blast_record_to_generic(blast_record: Blast) -> MultipleSeqAlignment:
 
 def mmseqs_output_to_generic(in_path: Path) -> dict[str, MultipleSeqAlignment]:
     msa_dict = {}
-    logger = logging.getLogger("T_prj.rna")
 
     for line in open(in_path).readlines():
         (
@@ -131,8 +130,8 @@ def mmseqs_output_to_generic(in_path: Path) -> dict[str, MultipleSeqAlignment]:
             id=target,
         )
         if len(record.seq) != qlen:
-            logger.warning(
-                "    warning (mmseqs parse): qlen %d but msa len %d, skipping",
+            logger.error(
+                "    error (mmseqs parse): query len %d but msa len %d, skipping",
                 qlen,
                 len(record.seq),
             )

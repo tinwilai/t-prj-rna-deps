@@ -53,41 +53,44 @@ class RhoFold(nn.Module):
             **config.model.heads.plddt,
         )
 
-
     def forward_cords(self, tokens, single_fea, pair_fea, seq):
 
-        output = self.structure_module.forward(seq, tokens, { "single": single_fea, "pair": pair_fea } )
-        output['plddt'] = self.plddt_head(output['single'][-1])
+        output = self.structure_module.forward(
+            seq, tokens, {"single": single_fea, "pair": pair_fea}
+        )
+        output["plddt"] = self.plddt_head(output["single"][-1])
 
         return output
 
     def forward_heads(self, pair_fea):
 
         output = {}
-        output['ss'] = self.ss_head(pair_fea.float())
-        output['p'], output['c4_'], output['n'] = self.dist_head(pair_fea.float())
+        output["ss"] = self.ss_head(pair_fea.float())
+        output["p"], output["c4_"], output["n"] = self.dist_head(pair_fea.float())
 
         return output
 
     def forward_one_cycle(self, tokens, rna_fm_tokens, recycling_inputs, seq):
-        '''
+        """
         Args:
             tokens: [bs, seq_len, c_z]
             rna_fm_tokens: [bs, seq_len, c_z]
-        '''
+        """
 
         device = tokens.device
 
-        msa_tokens_pert = tokens[:, :self.config.globals.msa_depth]
+        msa_tokens_pert = tokens[:, : self.config.globals.msa_depth]
 
-        msa_fea, pair_fea = self.msa_embedder.forward(tokens=msa_tokens_pert,
-                                                      rna_fm_tokens=rna_fm_tokens,
-                                                      is_BKL=True)
+        msa_fea, pair_fea = self.msa_embedder.forward(
+            tokens=msa_tokens_pert, rna_fm_tokens=rna_fm_tokens, is_BKL=True
+        )
 
         if exists(self.recycle_embnet) and exists(recycling_inputs):
-            msa_fea_up, pair_fea_up = self.recycle_embnet(recycling_inputs['single_fea'],
-                                                          recycling_inputs['pair_fea'],
-                                                          recycling_inputs["cords_c1'"])
+            msa_fea_up, pair_fea_up = self.recycle_embnet(
+                recycling_inputs["single_fea"],
+                recycling_inputs["pair_fea"],
+                recycling_inputs["cords_c1'"],
+            )
             msa_fea[..., 0, :, :] += msa_fea_up
             pair_fea = add(pair_fea, pair_fea_up, inplace=False)
 
@@ -104,19 +107,14 @@ class RhoFold(nn.Module):
         output.update(self.forward_heads(pair_fea))
 
         recycling_outputs = {
-            'single_fea': msa_fea[..., 0, :, :].detach(),
-            'pair_fea': pair_fea.detach(),
+            "single_fea": msa_fea[..., 0, :, :].detach(),
+            "pair_fea": pair_fea.detach(),
             "cords_c1'": output["cords_c1'"][-1].detach(),
         }
 
         return output, recycling_outputs
 
-    def forward(self,
-                tokens,
-                rna_fm_tokens,
-                seq,
-                **kwargs):
-
+    def forward(self, tokens, rna_fm_tokens, seq, **kwargs):
         """Perform the forward pass.
 
         Args:
@@ -128,8 +126,9 @@ class RhoFold(nn.Module):
 
         outputs = []
         for _r in range(self.config.model.recycling_embedder.recycles):
-            output, recycling_inputs = \
-                self.forward_one_cycle(tokens, rna_fm_tokens, recycling_inputs, seq)
+            output, recycling_inputs = self.forward_one_cycle(
+                tokens, rna_fm_tokens, recycling_inputs, seq
+            )
             outputs.append(output)
 
         return outputs

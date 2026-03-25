@@ -1,17 +1,15 @@
 # https://github.com/WangJiuming/rhofold_protocol/blob/main/rhofold/inference.py
 from pathlib import Path
 
-import logging
 import numpy as np
 import torch
 from rhofold.config import rhofold_config
 from rhofold.relax.relax import AmberRelaxation
+from rhofold.rhofold import RhoFold
 from rhofold.utils import save_ss2ct
 from rhofold.utils.alphabet import get_features
-from rhofold.rhofold import RhoFold
+from tinwilai.logger import logger, null_logger
 from tinwilai.utils import remkdir
-
-logger = logging.getLogger("T_prj.rna")
 
 device = "cuda"
 
@@ -19,16 +17,19 @@ device = "cuda"
 @torch.no_grad()
 def main(
     tmp_dir: Path,
-    model: RhoFold,
     input_path: Path,
     msa_path: Path | None = None,
     relax_steps: int = 1000,
-) -> tuple[Path, Path]:
+) -> list[Path]:
+    global model
+
     rhofold_dir = tmp_dir / "rhofold"
     remkdir(rhofold_dir)
 
     unrelaxed_model_path = rhofold_dir / "unrelaxed_model.pdb"
     relaxed_model_path = rhofold_dir / "relaxed_model.pdb"
+
+    output_paths = []
 
     # Input seq, MSA
     if msa_path is None:
@@ -79,8 +80,7 @@ def main(
         chain_id=None,
         confidence=output["plddt"][0].data.cpu().numpy(),
     )
-
-    logger.info("    relaxing")
+    # output_paths.append(unrelaxed_model_path)
 
     # Amber relaxation
     if device == "cpu":
@@ -89,34 +89,37 @@ def main(
         use_gpu = True
 
     if relax_steps is not None:
-        devnull_logger = logging.Logger("devnull")
-        devnull_logger.addHandler(logging.NullHandler())
         if relax_steps > 0:
+            logger.info("    relaxing")
             amber_relax = AmberRelaxation(
-                max_iterations=relax_steps, logger=devnull_logger, use_gpu=use_gpu
+                max_iterations=relax_steps, logger=null_logger, use_gpu=use_gpu
             )
             amber_relax.process(str(unrelaxed_model_path), str(relaxed_model_path))
+            output_paths.append(relaxed_model_path)
 
-    return unrelaxed_model_path, relaxed_model_path
+    return output_paths
 
 
-def load_model(model_path: Path) -> RhoFold:
+def load_model(model_path: Path) -> None:
+    global model
+
     model = RhoFold(rhofold_config)
-
     model.load_state_dict(
         torch.load(model_path, map_location=torch.device("cpu"))["model"]
     )
     model.eval()
-
     model.to(device)
 
-    return model
 
-
-def convert_model(model: RhoFold, device_to: str) -> RhoFold:
-    global device
-
-    device = device_to
-    model = model.to(device)
-
-    return model
+def run(
+    tmp_dir: Path,
+    input_seq_path: Path,
+    input_msa_path: Path | None,
+    relax_steps: int,
+) -> list[Path]:
+    return main(
+        tmp_dir,
+        input_seq_path,
+        input_msa_path,
+        relax_steps=relax_steps,
+    )

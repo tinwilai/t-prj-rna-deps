@@ -24,6 +24,7 @@ class TriangleMultiplicativeUpdate(nn.Module):
     """
     Implements Algorithms 11 and 12.
     """
+
     def __init__(self, c_z, c_hidden, _outgoing=True):
         """
         Args:
@@ -49,28 +50,27 @@ class TriangleMultiplicativeUpdate(nn.Module):
 
         self.sigmoid = nn.Sigmoid()
 
-    def _combine_projections(self,
+    def _combine_projections(
+        self,
         a: torch.Tensor,
         b: torch.Tensor,
-        _inplace_chunk_size: Optional[int] = None
+        _inplace_chunk_size: Optional[int] = None,
     ) -> torch.Tensor:
-        if(self._outgoing):
+        if self._outgoing:
             a = permute_final_dims(a, (2, 0, 1))
             b = permute_final_dims(b, (2, 1, 0))
         else:
             a = permute_final_dims(a, (2, 1, 0))
-            b = permute_final_dims(b,  (2, 0, 1))
+            b = permute_final_dims(b, (2, 0, 1))
 
-        if(_inplace_chunk_size is not None):
+        if _inplace_chunk_size is not None:
             # To be replaced by torch vmap
             for i in range(0, a.shape[-3], _inplace_chunk_size):
-                a_chunk = a[..., i: i + _inplace_chunk_size, :, :]
-                b_chunk = b[..., i: i + _inplace_chunk_size, :, :]
-                a[..., i: i + _inplace_chunk_size, :, :] = (
-                    torch.matmul(
-                        a_chunk,
-                        b_chunk,
-                    )
+                a_chunk = a[..., i : i + _inplace_chunk_size, :, :]
+                b_chunk = b[..., i : i + _inplace_chunk_size, :, :]
+                a[..., i : i + _inplace_chunk_size, :, :] = torch.matmul(
+                    a_chunk,
+                    b_chunk,
                 )
 
             p = a
@@ -79,7 +79,8 @@ class TriangleMultiplicativeUpdate(nn.Module):
 
         return permute_final_dims(p, (1, 2, 0))
 
-    def _inference_forward(self,
+    def _inference_forward(
+        self,
         z: torch.Tensor,
         mask: Optional[torch.Tensor] = None,
         inplace_chunk_size: Optional[int] = None,
@@ -105,15 +106,15 @@ class TriangleMultiplicativeUpdate(nn.Module):
             mask = z.new_ones(z.shape[:-1])
 
         mask = mask.unsqueeze(-1)
-       
+
         def compute_projection_helper(pair, mask, a=True):
-            if(a):
+            if a:
                 linear_g = self.linear_a_g
                 linear_p = self.linear_a_p
             else:
                 linear_g = self.linear_b_g
                 linear_p = self.linear_b_p
-            
+
             pair = self.layer_norm_in(pair)
             p = linear_g(pair)
             p.sigmoid_()
@@ -122,33 +123,33 @@ class TriangleMultiplicativeUpdate(nn.Module):
             p = permute_final_dims(p, (2, 0, 1))
             return p
 
-        def compute_projection(pair, mask, a=True, chunked=True): 
+        def compute_projection(pair, mask, a=True, chunked=True):
             need_transpose = self._outgoing ^ a
-            if(not chunked):
+            if not chunked:
                 p = compute_projection_helper(pair, mask, a)
-                if(need_transpose):
+                if need_transpose:
                     p = p.transpose(-1, -2)
             else:
-                # This computation is chunked so as not to exceed our 2.5x 
+                # This computation is chunked so as not to exceed our 2.5x
                 # budget with a large intermediate tensor
                 linear_g = self.linear_a_g if a else self.linear_b_g
                 c = linear_g.bias.shape[-1]
                 out_shape = pair.shape[:-3] + (c,) + pair.shape[-3:-1]
                 p = pair.new_zeros(out_shape)
                 for i in range(0, pair.shape[-3], inplace_chunk_size):
-                    pair_chunk = pair[..., i: i + inplace_chunk_size, :, :]
-                    mask_chunk = mask[..., i: i + inplace_chunk_size, :, :]
+                    pair_chunk = pair[..., i : i + inplace_chunk_size, :, :]
+                    mask_chunk = mask[..., i : i + inplace_chunk_size, :, :]
                     pair_chunk = compute_projection_helper(
-                        pair[..., i: i + inplace_chunk_size, :, :],
-                        mask[..., i: i + inplace_chunk_size, :, :], 
+                        pair[..., i : i + inplace_chunk_size, :, :],
+                        mask[..., i : i + inplace_chunk_size, :, :],
                         a,
                     )
-                    if(need_transpose):
+                    if need_transpose:
                         pair_chunk = pair_chunk.transpose(-1, -2)
-                        p[..., i: i + inplace_chunk_size] = pair_chunk
+                        p[..., i : i + inplace_chunk_size] = pair_chunk
                     else:
-                        p[..., i: i + inplace_chunk_size, :] = pair_chunk
-                    
+                        p[..., i : i + inplace_chunk_size, :] = pair_chunk
+
                     del pair_chunk
 
             return p
@@ -158,16 +159,16 @@ class TriangleMultiplicativeUpdate(nn.Module):
         # [*, N, N, c]
         a = compute_projection(z, mask, True, chunked=True)
 
-        if(inplace_chunk_size is not None):
+        if inplace_chunk_size is not None:
             n = a.shape[-1]
             half_n = n // 2 + n % 2
             row_dim = -3
             col_dim = -2
             b_chunk_dim = row_dim if self._outgoing else col_dim
-            
+
             def empty_slicer(t):
                 return [slice(None) for _ in t.shape]
-            
+
             def slice_tensor(t, start, end, dim):
                 # Slices start:end from the dim dimension of t
                 s = empty_slicer(t)
@@ -177,25 +178,21 @@ class TriangleMultiplicativeUpdate(nn.Module):
             def flip_z_cache_(z_cache, z):
                 # "Reorient" the z_cache (see below), filling it with quadrants
                 # 3---recovered from the z_cache---and 4---recovered from z---
-                # of the input tensor z. 
-                quadrant_3 = slice_tensor(
-                    z_cache, half_n, None, row_dim
-                )
+                # of the input tensor z.
+                quadrant_3 = slice_tensor(z_cache, half_n, None, row_dim)
                 z_cache = z_cache.transpose(row_dim, col_dim)
-                
-                # If n is odd, we need to shrink the z_cache by one row
-                z_cache = z_cache[..., :(n // 2), :, :]
 
-                # Move the 3rd quadrant of z into the 
+                # If n is odd, we need to shrink the z_cache by one row
+                z_cache = z_cache[..., : (n // 2), :, :]
+
+                # Move the 3rd quadrant of z into the
                 first_half_slicer = empty_slicer(z_cache)
                 first_half_slicer[col_dim] = slice(0, half_n)
                 z_cache[first_half_slicer] = quadrant_3
-               
+
                 # Get the fourth quadrant of z
                 quadrant_4 = slice_tensor(z, half_n, None, row_dim)
-                quadrant_4 = slice_tensor(
-                    quadrant_4, half_n, None, col_dim
-                )
+                quadrant_4 = slice_tensor(quadrant_4, half_n, None, col_dim)
 
                 # Insert said quadrant into the rotated z-cache
                 quadrant_3_slicer = empty_slicer(z_cache)
@@ -214,7 +211,7 @@ class TriangleMultiplicativeUpdate(nn.Module):
             z_cache.copy_(z[z_cache_slicer])
             z_cache_rotated = False
 
-            # We need to reorient the z-cache at the halfway point, and we 
+            # We need to reorient the z-cache at the halfway point, and we
             # don't want a single chunk to straddle that point. We contract one
             # of the chunks in the middle to address that problem.
             i_range = list(range(0, half_n, inplace_chunk_size))
@@ -227,38 +224,43 @@ class TriangleMultiplicativeUpdate(nn.Module):
                 i_range + after_half, initial_offsets + after_half_offsets
             )
             for i, offset in combined_range_with_offsets:
-                if(not z_cache_rotated and i >= half_n):
+                if not z_cache_rotated and i >= half_n:
                     z_cache = flip_z_cache_(z_cache, z)
                     z_cache_rotated = True
 
                 z_chunk_b = slice_tensor(
-                    z, i, i + offset, b_chunk_dim,
+                    z,
+                    i,
+                    i + offset,
+                    b_chunk_dim,
                 )
                 mask_chunk = slice_tensor(
-                    mask, i, i + offset, b_chunk_dim,
+                    mask,
+                    i,
+                    i + offset,
+                    b_chunk_dim,
                 )
 
                 z_chunk_b = z_chunk_b.clone()
-                if(b_chunk_dim == col_dim):
-                    z_chunk_b = slice_tensor(
-                        z, i, i + offset, col_dim
-                    )
+                if b_chunk_dim == col_dim:
+                    z_chunk_b = slice_tensor(z, i, i + offset, col_dim)
                 else:
-                    # In this case, the b-dimension (b_chunk_dim) is partially 
-                    # overwritten at the end of each iteration. We need to 
+                    # In this case, the b-dimension (b_chunk_dim) is partially
+                    # overwritten at the end of each iteration. We need to
                     # restore the missing component from the z-cache.
-                    if(not z_cache_rotated):
+                    if not z_cache_rotated:
                         z_chunk_slicer = empty_slicer(z_chunk_b)
                         z_chunk_slicer[col_dim] = slice(0, half_n)
                         z_chunk_b[z_chunk_slicer] = slice_tensor(
-                            z_cache, i, i + offset, row_dim,
+                            z_cache,
+                            i,
+                            i + offset,
+                            row_dim,
                         )
                     else:
                         z_cache_offset = i - half_n
                         z_chunk_b = slice_tensor(
-                            z_cache, 
-                            z_cache_offset, z_cache_offset + offset, 
-                            row_dim
+                            z_cache, z_cache_offset, z_cache_offset + offset, row_dim
                         )
 
                 b_chunk = compute_projection(
@@ -267,28 +269,26 @@ class TriangleMultiplicativeUpdate(nn.Module):
                 del z_chunk_b
 
                 x_chunk = torch.matmul(
-                     a,
-                     b_chunk,
+                    a,
+                    b_chunk,
                 )
                 x_chunk = permute_final_dims(x_chunk, (1, 2, 0))
                 x_chunk = self.layer_norm_out(x_chunk)
                 x_chunk = self.linear_z(x_chunk)
 
-                # The g dimension (col_dim) is parallel to and ahead of the 
+                # The g dimension (col_dim) is parallel to and ahead of the
                 # overwrites in z. We can extract the g chunk normally.
-                z_chunk_g = slice_tensor(
-                    z, i, i + offset, col_dim
-                )
-                g_chunk = self.linear_g(self.layer_norm_in(z_chunk_g)) 
+                z_chunk_g = slice_tensor(z, i, i + offset, col_dim)
+                g_chunk = self.linear_g(self.layer_norm_in(z_chunk_g))
                 g_chunk.sigmoid_()
                 del z_chunk_g
-                
+
                 x_chunk *= g_chunk
 
                 # Write the columns into z in-place
                 z_slicer = empty_slicer(z)
                 z_slicer[col_dim] = slice(i, i + offset)
-                if(with_add):
+                if with_add:
                     z[z_slicer] += x_chunk
                 else:
                     z[z_slicer] = x_chunk
@@ -300,15 +300,16 @@ class TriangleMultiplicativeUpdate(nn.Module):
             g = self.linear_g(z)
             g.sigmoid_()
             x *= g
-            if(with_add):
+            if with_add:
                 z += x
             else:
                 z = x
 
         return z
 
-    def forward(self, 
-        z: torch.Tensor, 
+    def forward(
+        self,
+        z: torch.Tensor,
         mask: Optional[torch.Tensor] = None,
         inplace_safe: bool = False,
         _add_with_inplace: bool = False,
@@ -323,10 +324,10 @@ class TriangleMultiplicativeUpdate(nn.Module):
         Returns:
             [*, N_res, N_res, C_z] output tensor
         """
-        if(inplace_safe):
+        if inplace_safe:
             x = self._inference_forward(
-                z, 
-                mask, 
+                z,
+                mask,
                 inplace_chunk_size=_inplace_chunk_size,
                 with_add=_add_with_inplace,
             )
@@ -336,10 +337,10 @@ class TriangleMultiplicativeUpdate(nn.Module):
             mask = z.new_ones(z.shape[:-1])
 
         mask = mask.unsqueeze(-1)
-        
+
         z = self.layer_norm_in(z)
         a = mask
-        a = a * self.sigmoid(self.linear_a_g(z)) 
+        a = a * self.sigmoid(self.linear_a_g(z))
         a = a * self.linear_a_p(z)
         b = mask
         b = b * self.sigmoid(self.linear_b_g(z))
@@ -358,6 +359,7 @@ class TriangleMultiplicationOutgoing(TriangleMultiplicativeUpdate):
     """
     Implements Algorithm 11.
     """
+
     __init__ = partialmethod(TriangleMultiplicativeUpdate.__init__, _outgoing=True)
 
 
@@ -365,4 +367,5 @@ class TriangleMultiplicationIncoming(TriangleMultiplicativeUpdate):
     """
     Implements Algorithm 12.
     """
+
     __init__ = partialmethod(TriangleMultiplicativeUpdate.__init__, _outgoing=False)

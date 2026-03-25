@@ -11,13 +11,12 @@
 # limitations under the License.
 
 from functools import partial
-import logging
 import math
 from typing import Tuple, Callable, Any, Dict, Sequence, Optional
 
 import torch
 
-from rhofold.utils.tensor_utils import (
+from .tensor_utils import (
     tree_map,
     tensor_tree_map,
 )

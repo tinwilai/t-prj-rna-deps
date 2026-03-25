@@ -7,8 +7,6 @@ from typing import Optional
 import shutil
 import logging
 
-from .ss_utils import *
-
 
 def exists(val):
     return val is not None

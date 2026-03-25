@@ -13,6 +13,7 @@ import torch.nn.functional as F
 from rhofold.model.rna_fm.multihead_attention import MultiheadAttention  # noqa
 from rhofold.model.rna_fm.axial_attention import ColumnSelfAttention, RowSelfAttention
 
+
 def gelu(x):
     """Implementation of the gelu activation function.
 
@@ -22,9 +23,11 @@ def gelu(x):
     """
     return x * 0.5 * (1.0 + torch.erf(x / math.sqrt(2.0)))
 
+
 def symmetrize(x):
     "Make layer symmetric in final two dimensions, used for contact prediction."
     return x + x.transpose(-1, -2)
+
 
 def apc(x):
     "Perform average product correct, used for contact prediction."
@@ -38,12 +41,13 @@ def apc(x):
     return normalized
 
 
-
 class ESM1LayerNorm(nn.Module):
     def __init__(self, hidden_size, eps=1e-12, affine=True):
         """Construct a layernorm layer in the TF style (eps inside the sqrt)."""
         super().__init__()
-        self.hidden_size = (hidden_size,) if isinstance(hidden_size, int) else tuple(hidden_size)
+        self.hidden_size = (
+            (hidden_size,) if isinstance(hidden_size, int) else tuple(hidden_size)
+        )
         self.eps = eps
         self.affine = bool(affine)
         if self.affine:
@@ -62,6 +66,7 @@ class ESM1LayerNorm(nn.Module):
             x = (self.weight * x) + self.bias
         return x
 
+
 try:
     from apex.normalization import FusedLayerNorm as _FusedLayerNorm
 
@@ -77,11 +82,17 @@ except ImportError:
     from torch.nn import LayerNorm as ESM1bLayerNorm
 
 
-
 class TransformerLayer(nn.Module):
     """Transformer layer block."""
 
-    def __init__(self, embed_dim, ffn_embed_dim, attention_heads, add_bias_kv=True, use_esm1b_layer_norm=False):
+    def __init__(
+        self,
+        embed_dim,
+        ffn_embed_dim,
+        attention_heads,
+        add_bias_kv=True,
+        use_esm1b_layer_norm=False,
+    ):
         super().__init__()
         self.embed_dim = embed_dim
         self.ffn_embed_dim = ffn_embed_dim
@@ -92,7 +103,10 @@ class TransformerLayer(nn.Module):
         BertLayerNorm = ESM1bLayerNorm if use_esm1b_layer_norm else ESM1LayerNorm
 
         self.self_attn = MultiheadAttention(
-            self.embed_dim, self.attention_heads, add_bias_kv=add_bias_kv, add_zero_attn=False,
+            self.embed_dim,
+            self.attention_heads,
+            add_bias_kv=add_bias_kv,
+            add_zero_attn=False,
         )
         self.self_attn_layer_norm = BertLayerNorm(self.embed_dim)
 
@@ -101,7 +115,13 @@ class TransformerLayer(nn.Module):
 
         self.final_layer_norm = BertLayerNorm(self.embed_dim)
 
-    def forward(self, x, self_attn_mask=None, self_attn_padding_mask=None, need_head_weights=False):
+    def forward(
+        self,
+        x,
+        self_attn_mask=None,
+        self_attn_padding_mask=None,
+        need_head_weights=False,
+    ):
         residual = x
         x = self.self_attn_layer_norm(x)
         x, attn = self.self_attn(
@@ -123,9 +143,9 @@ class TransformerLayer(nn.Module):
 
         return x, attn
 
+
 class AxialTransformerLayer(nn.Module):
-    """ Implements an Axial MSA Transformer block.
-    """
+    """Implements an Axial MSA Transformer block."""
 
     def __init__(
         self,
@@ -135,7 +155,7 @@ class AxialTransformerLayer(nn.Module):
         dropout: float = 0.1,
         attention_dropout: float = 0.1,
         activation_dropout: float = 0.1,
-        max_tokens_per_msa: int = 2 ** 14,
+        max_tokens_per_msa: int = 2**14,
     ) -> None:
         super().__init__()
 
@@ -202,6 +222,7 @@ class AxialTransformerLayer(nn.Module):
         else:
             return x
 
+
 class LearnedPositionalEmbedding(nn.Embedding):
     """
     This module learns positional embeddings up to a fixed maximum size.
@@ -221,7 +242,9 @@ class LearnedPositionalEmbedding(nn.Embedding):
     def forward(self, input: torch.Tensor):
         """Input is expected to be of size [bsz x seqlen]."""
         mask = input.ne(self.padding_idx).int()
-        positions = (torch.cumsum(mask, dim=1).type_as(mask) * mask).long() + self.padding_idx
+        positions = (
+            torch.cumsum(mask, dim=1).type_as(mask) * mask
+        ).long() + self.padding_idx
         return F.embedding(
             positions,
             self.weight,
@@ -231,6 +254,7 @@ class LearnedPositionalEmbedding(nn.Embedding):
             self.scale_grad_by_freq,
             self.sparse,
         )
+
 
 class SinusoidalPositionalEmbedding(nn.Module):
     def __init__(self, embed_dim, padding_idx, learned=False):
@@ -248,11 +272,17 @@ class SinusoidalPositionalEmbedding(nn.Module):
         self.weights = self.weights.type_as(self._float_tensor)
 
         positions = self.make_positions(x)
-        return self.weights.index_select(0, positions.view(-1)).view(bsz, seq_len, -1).detach()
+        return (
+            self.weights.index_select(0, positions.view(-1))
+            .view(bsz, seq_len, -1)
+            .detach()
+        )
 
     def make_positions(self, x):
         mask = x.ne(self.padding_idx)
-        range_buf = torch.arange(x.size(1), device=x.device).expand_as(x) + self.padding_idx + 1
+        range_buf = (
+            torch.arange(x.size(1), device=x.device).expand_as(x) + self.padding_idx + 1
+        )
         positions = range_buf.expand_as(x)
         return positions * mask.long() + self.padding_idx * (1 - mask.long())
 
@@ -260,14 +290,19 @@ class SinusoidalPositionalEmbedding(nn.Module):
         half_dim = self.embed_dim // 2
         emb = math.log(10000) / (half_dim - 1)
         emb = torch.exp(torch.arange(half_dim, dtype=torch.float) * -emb)
-        emb = torch.arange(num_embeddings, dtype=torch.float).unsqueeze(1) * emb.unsqueeze(0)
-        emb = torch.cat([torch.sin(emb), torch.cos(emb)], dim=1).view(num_embeddings, -1)
+        emb = torch.arange(num_embeddings, dtype=torch.float).unsqueeze(
+            1
+        ) * emb.unsqueeze(0)
+        emb = torch.cat([torch.sin(emb), torch.cos(emb)], dim=1).view(
+            num_embeddings, -1
+        )
         if self.embed_dim % 2 == 1:
             # zero pad
             emb = torch.cat([emb, torch.zeros(num_embeddings, 1)], dim=1)
         if self.padding_idx is not None:
             emb[self.padding_idx, :] = 0
         return emb
+
 
 # CJY at 2021.10.20 add masked_tokens for lm_head
 class RobertaLMHead(nn.Module):
@@ -291,6 +326,7 @@ class RobertaLMHead(nn.Module):
         # project back to size of vocabulary with bias
         x = F.linear(x, self.weight) + self.bias
         return x
+
 
 class ContactPredictionHead(nn.Module):
     """Performs symmetrization, apc, and computes a logistic regression on the output features"""
@@ -329,10 +365,13 @@ class ContactPredictionHead(nn.Module):
         attentions = attentions.view(batch_size, layers * heads, seqlen, seqlen)
 
         # features: B x C x T x T
-        attentions = attentions.to(next(self.parameters()))  # attentions always float32, may need to convert to float16
+        attentions = attentions.to(
+            next(self.parameters())
+        )  # attentions always float32, may need to convert to float16
         attentions = apc(symmetrize(attentions))
         attentions = attentions.permute(0, 2, 3, 1)
         return self.activation(self.regression(attentions).squeeze(3))
+
 
 class NormalizedResidualBlock(nn.Module):
     def __init__(
@@ -368,13 +407,14 @@ class NormalizedResidualBlock(nn.Module):
         else:
             return x
 
+
 class FeedForwardNetwork(nn.Module):
     def __init__(
         self,
         embedding_dim: int,
         ffn_embedding_dim: int,
         activation_dropout: float = 0.1,
-        max_tokens_per_msa: int = 2 ** 14,
+        max_tokens_per_msa: int = 2**14,
     ):
         super().__init__()
         self.embedding_dim = embedding_dim

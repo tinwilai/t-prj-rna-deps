@@ -1,20 +1,19 @@
-import os
 import shutil
-import subprocess
+import time
 from pathlib import Path
+from typing import Callable
 
-from Bio.Align import MultipleSeqAlignment
-from Bio.Blast import NCBIXML
-from Bio.PDB.Structure import Structure
 from Bio.SeqRecord import SeqRecord
+import numpy as np
+import torch
+from Bio.PDB.Structure import Structure
 from tinwilai.convert import (
-    blast_record_to_generic,
     coords_to_result_df,
     label_to_c1p_coords,
-    mmseqs_output_to_generic,
-    seq_records_to_fasta,
+    pdb_to_c1p_coords,
     structure_to_c1p_coords,
 )
+from tinwilai.logger import logger
 from tinwilai.tm_score import score
 
 
@@ -49,84 +48,43 @@ def score_bio(
     )
 
 
-def blastn(
-    tmp_dir: Path,
-    blastn_path: Path,
-    blast_db: Path,
-    seq_records: list[SeqRecord],
-) -> list[MultipleSeqAlignment]:
-    blastn_dir = tmp_dir / "blastn"
-    remkdir(blastn_dir)
-
-    in_path = blastn_dir / "blast_query.fasta"
-    out_path = blastn_dir / "blast_output.xml"
-    seq_records_to_fasta(seq_records, in_path)
-    subprocess.run(
-        [
-            blastn_path,
-            "-db",
-            blast_db,
-            "-query",
-            in_path,
-            "-out",
-            out_path,
-            "-num_threads",
-            f"{os.cpu_count()}",
-            "-outfmt",
-            "5",
-            "-task",
-            "blastn-short",
-        ],
-        stdout=subprocess.DEVNULL,
-        check=True,
-    )
-    blast_records = NCBIXML.parse(open(out_path))
-    results = []
-    for query_seq_record, blast_record in zip(seq_records, blast_records):
-        align = blast_record_to_generic(blast_record)
-        align._records.insert(0, query_seq_record)
-        results.append(align)
-    return results
-
-
 def remkdir(dir_path: Path) -> None:
     if dir_path.exists():
         shutil.rmtree(dir_path)
     dir_path.mkdir()
 
 
-def mmseqs(
-    tmp_dir: Path,
-    mmseqs_path: Path,
-    target_db: Path,
-    seq_records: list[SeqRecord],
-) -> dict[str, MultipleSeqAlignment]:
-    mmseqs_dir = tmp_dir / "mmseqs"
-    remkdir(mmseqs_dir)
+def try_run(
+    seq_record: SeqRecord,
+    name: str,
+    run: Callable,
+    coords_list: np.ndarray,
+    **kwargs,
+):
+    start_time = time.perf_counter()
 
-    mtmp_dir = mmseqs_dir / "tmp"
-    fasta_path = mmseqs_dir / "query.fasta"
-    result_path = mmseqs_dir / "result.m8"
+    not_filled = np.all(np.isnan(coords_list), axis=(1, 2))
+    start = np.where(not_filled)[0][0]
+    try:
+        logger.info("  running %s", name)
+        model_paths = run(**kwargs)
+        for i, model_path in enumerate(model_paths, start):
+            _, coords_list[i] = pdb_to_c1p_coords(model_path, seq_record.id)
+    except Exception as e:
+        logger.error("    error (%s): %s", name, e)
+        torch.cuda.empty_cache()
 
-    seq_records_to_fasta(seq_records, fasta_path)
-    subprocess.run(
-        [
-            mmseqs_path,
-            "easy-search",
-            fasta_path,
-            target_db,
-            result_path,
-            mtmp_dir,
-            "--db-load-mode",
-            "2",
-            "-s",
-            "7.5",
-            "--search-type",
-            "3",
-            "--format-output",
-            "query,target,taln,qlen,qstart,qend,alnlen",
-        ],
-        stdout=subprocess.DEVNULL,
-        check=True,
-    )
-    return mmseqs_output_to_generic(result_path)
+    end_time = time.perf_counter()
+    logger.info("    %s done in %.3f s", name, end_time - start_time)
+
+
+def stats(
+    name: str,
+    arr: np.ndarray,
+    offset: int,
+):
+    offset_str = " " * offset
+    logger.info(offset_str + "%s:", name)
+    logger.info(offset_str + "  avg: %.3f s", arr.mean())
+    logger.info(offset_str + "  min: %.3f s", arr.min())
+    logger.info(offset_str + "  max: %.3f s", arr.max())

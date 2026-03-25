@@ -45,7 +45,7 @@ class OuterProductMean(nn.Module):
         self.layer_norm = nn.LayerNorm(c_m)
         self.linear_1 = Linear(c_m, c_hidden)
         self.linear_2 = Linear(c_m, c_hidden)
-        self.linear_out = Linear(c_hidden ** 2, c_z)
+        self.linear_out = Linear(c_hidden**2, c_z)
 
     def _opm(self, a, b):
         # [*, N_res, N_res, C, C]
@@ -60,11 +60,7 @@ class OuterProductMean(nn.Module):
         return outer
 
     @torch.jit.ignore
-    def _chunk(self, 
-        a: torch.Tensor, 
-        b: torch.Tensor, 
-        chunk_size: int
-    ) -> torch.Tensor:
+    def _chunk(self, a: torch.Tensor, b: torch.Tensor, chunk_size: int) -> torch.Tensor:
 
         a_reshape = a.reshape((-1,) + a.shape[-3:])
         b_reshape = b.reshape((-1,) + b.shape[-3:])
@@ -79,7 +75,7 @@ class OuterProductMean(nn.Module):
             out.append(outer)
 
         # For some cursed reason making this distinction saves memory
-        if(len(out) == 1):
+        if len(out) == 1:
             outer = out[0].unsqueeze(0)
         else:
             outer = torch.stack(out, dim=0)
@@ -88,8 +84,9 @@ class OuterProductMean(nn.Module):
 
         return outer
 
-    def forward(self, 
-        m: torch.Tensor, 
+    def forward(
+        self,
+        m: torch.Tensor,
         mask: Optional[torch.Tensor] = None,
         chunk_size: Optional[int] = None,
         inplace_safe: bool = False,
@@ -111,10 +108,10 @@ class OuterProductMean(nn.Module):
 
         # [*, N_seq, N_res, C]
         mask = mask.unsqueeze(-1)
-        a = self.linear_1(ln) 
+        a = self.linear_1(ln)
         a = a * mask
-        
-        b = self.linear_2(ln) 
+
+        b = self.linear_2(ln)
         b = b * mask
 
         del ln
@@ -132,7 +129,7 @@ class OuterProductMean(nn.Module):
         norm = norm + self.eps
 
         # [*, N_res, N_res, C_z]
-        if(inplace_safe):
+        if inplace_safe:
             outer /= norm
         else:
             outer = outer / norm

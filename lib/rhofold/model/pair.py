@@ -20,18 +20,18 @@ from rhofold.utils.chunk_utils import chunk_layer
 
 
 class PairNet(nn.Module):
-    def __init__(self,
-                 d_model = 64,
-                 d_msa = 21,
-                 p_drop = 0.,
-                 is_pos_emb = True,
-                 ):
+    def __init__(
+        self,
+        d_model=64,
+        d_msa=21,
+        p_drop=0.0,
+        is_pos_emb=True,
+    ):
         super(PairNet, self).__init__()
 
-        self.pair_emb = PairEmbNet(d_model= d_model,
-                                   p_drop = p_drop,
-                                   d_seq  = d_msa,
-                                   is_pos_emb = is_pos_emb)
+        self.pair_emb = PairEmbNet(
+            d_model=d_model, p_drop=p_drop, d_seq=d_msa, is_pos_emb=is_pos_emb
+        )
 
     def forward(self, msa_tokens, **unused):
         seq_tokens = msa_tokens[:, 0, :]
@@ -50,8 +50,10 @@ class PositionalEncoding2D(nn.Module):
         super(PositionalEncoding2D, self).__init__()
         self.drop = nn.Dropout(p_drop)
         d_model_half = d_model // 2
-        div_term = torch.exp(torch.arange(0., d_model_half, 2) * -(math.log(10000.0) / d_model_half))
-        self.register_buffer('div_term', div_term)
+        div_term = torch.exp(
+            torch.arange(0.0, d_model_half, 2) * -(math.log(10000.0) / d_model_half)
+        )
+        self.register_buffer("div_term", div_term)
 
     def forward(self, x, idx_s):
         B, L, _, K = x.shape
@@ -72,9 +74,9 @@ class PositionalEncoding2D(nn.Module):
         x = x + torch.autograd.Variable(pe, requires_grad=False)
         return self.drop(x)
 
+
 class PairEmbNet(nn.Module):
-    def __init__(self, d_model=128, d_seq=21, p_drop=0.1,
-                 is_pos_emb = True):
+    def __init__(self, d_model=128, d_seq=21, p_drop=0.1, is_pos_emb=True):
         super(PairEmbNet, self).__init__()
         self.d_model = d_model
         self.d_emb = d_model // 2
@@ -89,8 +91,8 @@ class PairEmbNet(nn.Module):
 
         L = seq.shape[1]
         seq = self.emb(seq)
-        left  = seq.unsqueeze(2).expand(-1,-1,L,-1)
-        right = seq.unsqueeze(1).expand(-1,L,-1,-1)
+        left = seq.unsqueeze(2).expand(-1, -1, L, -1)
+        right = seq.unsqueeze(1).expand(-1, L, -1, -1)
         pair = torch.cat((left, right), dim=-1)
 
         pair = self.projection(pair)
@@ -126,7 +128,7 @@ class PairTransition(nn.Module):
     def _transition(self, z, mask):
         # [*, N_res, N_res, C_z]
         z = self.layer_norm(z)
-        
+
         # [*, N_res, N_res, C_hidden]
         z = self.linear_1(z)
         z = self.relu(z)
@@ -137,7 +139,8 @@ class PairTransition(nn.Module):
         return z
 
     @torch.jit.ignore
-    def _chunk(self,
+    def _chunk(
+        self,
         z: torch.Tensor,
         mask: torch.Tensor,
         chunk_size: int,
@@ -149,9 +152,9 @@ class PairTransition(nn.Module):
             no_batch_dims=len(z.shape[:-2]),
         )
 
-
-    def forward(self, 
-        z: torch.Tensor, 
+    def forward(
+        self,
+        z: torch.Tensor,
         mask: Optional[torch.Tensor] = None,
         chunk_size: Optional[int] = None,
     ) -> torch.Tensor:

@@ -20,8 +20,8 @@ rhofold_config = mlc.ConfigDict(
             "c_t": 64,
             "c_e": 64,
             "c_s": 384,
-            'msa_depth': 128,
-            'frame_version': 'v5.0',
+            "msa_depth": 128,
+            "frame_version": "v5.0",
             "eps": 1e-8,
         },
         "model": {
@@ -32,15 +32,15 @@ rhofold_config = mlc.ConfigDict(
                 "c_m": 256,
                 "relpos_k": 32,
             },
-            'msa_embedder':{
+            "msa_embedder": {
                 "c_z": 128,
                 "c_m": 256,
-                'rna_fm':{
-                    'enable': True,
+                "rna_fm": {
+                    "enable": True,
                 },
             },
             "recycling_embedder": {
-                'recycles': 10,
+                "recycles": 10,
                 "c_z": 128,
                 "c_m": 256,
                 "min_bin": 2,
@@ -74,12 +74,12 @@ rhofold_config = mlc.ConfigDict(
                 "no_resnet_blocks": 2,
                 "no_angles": 6,
                 "trans_scale_factor": 10,
-                'refinenet':{
-                    'enable': True,
-                    'dim': 64,
-                    'is_pos_emb': True,
-                    'n_layer': 4,
-                }
+                "refinenet": {
+                    "enable": True,
+                    "dim": 64,
+                    "is_pos_emb": True,
+                    "n_layer": 4,
+                },
             },
             "heads": {
                 "plddt": {
@@ -98,6 +98,3 @@ rhofold_config = mlc.ConfigDict(
         },
     }
 )
-
-
-

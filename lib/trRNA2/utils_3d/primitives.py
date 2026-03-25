@@ -16,7 +16,7 @@ from typing import Optional, List, Tuple
 import torch
 import torch.nn as nn
 
-from rhofold.utils.tensor_utils import (
+from .tensor_utils import (
     permute_final_dims,
     flatten_final_dims,
 )
@@ -95,17 +95,6 @@ def softmax_no_cast(t: torch.Tensor, dim: int = -1) -> torch.Tensor:
     return s
 
 
-import matplotlib.pyplot as plt
-import numpy as np
-
-a_c = 0
-attn_maps = []
-attn_map_dir = None
-seq_len = None
-save_png = False
-msa_depth = None
-
-
 # @torch.jit.script
 def _attention(
     query: torch.Tensor,
@@ -123,23 +112,6 @@ def _attention(
         a += b
 
     a = softmax_no_cast(a, -1)
-
-    # For Attention map visualization
-
-    if attn_map_dir is not None:
-        global a_c, attn_maps, seq_len, save_png, msa_depth
-        if a.shape[-1] == seq_len and a.shape[1] == msa_depth:
-            a_c += 1
-            a_map = a[0, 0]  # bs, msa_depth
-            n_heads = a_map.shape[0]
-            attn_maps.append(a_map.data.cpu().numpy())
-
-        #     if save_png:
-        #         for i in range(n_heads):
-        #             a_map_ = a_map[i]
-        #             fig, ax = plt.subplots(figsize=(10, 10))
-        #             ax.imshow(a_map_.data.cpu().numpy(), cmap='hot', interpolation='nearest')
-        #             plt.savefig(f'{attn_map_dir}/attn_map/tmp-{a_c}-{i}.png')
 
     # [*, H, Q, C_hidden]
     a = torch.matmul(a, value)

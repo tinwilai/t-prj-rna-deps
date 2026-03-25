@@ -32,12 +32,14 @@ from rhofold.model.triangular_update import (
 from rhofold.utils.chunk_utils import chunk_layer, ChunkSizeTuner
 from rhofold.utils.tensor_utils import add
 
+
 class MSATransition(nn.Module):
     """
     Feed-forward network applied to MSA activations after attention.
 
     Implements Algorithm 9
     """
+
     def __init__(self, c_m, n):
         """
         Args:
@@ -65,18 +67,18 @@ class MSATransition(nn.Module):
         return m
 
     @torch.jit.ignore
-    def _chunk(self,
+    def _chunk(
+        self,
         m: torch.Tensor,
         mask: torch.Tensor,
         chunk_size: int,
     ) -> torch.Tensor:
-         return chunk_layer(
-             self._transition,
-             {"m": m, "mask": mask},
-             chunk_size=chunk_size,
-             no_batch_dims=len(m.shape[:-2]),
-         )
-
+        return chunk_layer(
+            self._transition,
+            {"m": m, "mask": mask},
+            chunk_size=chunk_size,
+            no_batch_dims=len(m.shape[:-2]),
+        )
 
     def forward(
         self,
@@ -162,8 +164,8 @@ class E2EformerBlockCore(nn.Module):
             transition_n,
         )
 
-
-    def forward(self,
+    def forward(
+        self,
         input_tensors: Sequence[torch.Tensor],
         msa_mask: torch.Tensor,
         pair_mask: torch.Tensor,
@@ -172,35 +174,37 @@ class E2EformerBlockCore(nn.Module):
         _mask_trans: bool = True,
         _attn_chunk_size: Optional[int] = None,
         _offload_inference: bool = False,
-    ) -> Tuple[torch.Tensor, torch.Tensor]: 
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
         #
         msa_trans_mask = msa_mask if _mask_trans else None
         pair_trans_mask = pair_mask if _mask_trans else None
-      
-        if(_attn_chunk_size is None):
+
+        if _attn_chunk_size is None:
             _attn_chunk_size = chunk_size
 
         m, z = input_tensors
-        
+
         m = add(
             m,
             self.msa_transition(
-                m, mask=msa_trans_mask, chunk_size=chunk_size,
+                m,
+                mask=msa_trans_mask,
+                chunk_size=chunk_size,
             ),
             inplace=inplace_safe,
-        ) 
+        )
 
-        if(_offload_inference and inplace_safe):
+        if _offload_inference and inplace_safe:
             del m, z
             input_tensors[1] = input_tensors[1].cpu()
             torch.cuda.empty_cache()
-            m, z = input_tensors 
+            m, z = input_tensors
 
         opm = self.outer_product_mean(
             m, mask=msa_mask, chunk_size=chunk_size, inplace_safe=inplace_safe
         )
 
-        if(_offload_inference and inplace_safe):
+        if _offload_inference and inplace_safe:
             del m, z
             input_tensors[0] = input_tensors[0].cpu()
             input_tensors[1] = input_tensors[1].to(opm.device)
@@ -215,11 +219,11 @@ class E2EformerBlockCore(nn.Module):
             inplace_safe=inplace_safe,
             _add_with_inplace=True,
         )
-        if(not inplace_safe):
+        if not inplace_safe:
             z = z + tmu_update
         else:
             z = tmu_update
-        
+
         del tmu_update
 
         tmu_update = self.tri_mul_in(
@@ -228,53 +232,57 @@ class E2EformerBlockCore(nn.Module):
             inplace_safe=inplace_safe,
             _add_with_inplace=True,
         )
-        if(not inplace_safe):
+        if not inplace_safe:
             z = z + tmu_update
         else:
             z = tmu_update
-       
+
         del tmu_update
 
-        z = add(z,
-                self.tri_att_start(
-                    z, 
-                    mask=pair_mask, 
-                    chunk_size=_attn_chunk_size,
-                    inplace_safe=inplace_safe,
-
+        z = add(
+            z,
+            self.tri_att_start(
+                z,
+                mask=pair_mask,
+                chunk_size=_attn_chunk_size,
+                inplace_safe=inplace_safe,
             ),
             inplace=inplace_safe,
         )
 
         z = z.transpose(-2, -3)
-        if(inplace_safe):
+        if inplace_safe:
             input_tensors[1] = z.contiguous()
             z = input_tensors[1]
 
-        z = add(z,
-                self.tri_att_end(
-                    z,
-                    mask=pair_mask.transpose(-1, -2),
-                    chunk_size=_attn_chunk_size,
-                    inplace_safe=inplace_safe,
+        z = add(
+            z,
+            self.tri_att_end(
+                z,
+                mask=pair_mask.transpose(-1, -2),
+                chunk_size=_attn_chunk_size,
+                inplace_safe=inplace_safe,
             ),
             inplace=inplace_safe,
         )
 
         z = z.transpose(-2, -3)
-        
-        if(inplace_safe):
+
+        if inplace_safe:
             input_tensors[1] = z.contiguous()
             z = input_tensors[1]
 
-        z = add(z,
+        z = add(
+            z,
             self.pair_transition(
-                z, mask=pair_trans_mask, chunk_size=chunk_size,
+                z,
+                mask=pair_trans_mask,
+                chunk_size=chunk_size,
             ),
             inplace=inplace_safe,
         )
 
-        if(_offload_inference and inplace_safe):
+        if _offload_inference and inplace_safe:
             device = z.device
             del m, z
             input_tensors[0] = input_tensors[0].to(device)
@@ -285,7 +293,8 @@ class E2EformerBlockCore(nn.Module):
 
 
 class E2EformerBlock(nn.Module):
-    def __init__(self,
+    def __init__(
+        self,
         c_m: int,
         c_z: int,
         c_hidden_msa_att: int,
@@ -329,7 +338,8 @@ class E2EformerBlock(nn.Module):
             eps=eps,
         )
 
-    def forward(self,
+    def forward(
+        self,
         m: Optional[torch.Tensor],
         z: Optional[torch.Tensor],
         msa_mask: torch.Tensor,
@@ -341,10 +351,10 @@ class E2EformerBlock(nn.Module):
         _offload_inference: bool = False,
         _offloadable_inputs: Optional[Sequence[torch.Tensor]] = None,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
-        if(_attn_chunk_size is None):
+        if _attn_chunk_size is None:
             _attn_chunk_size = chunk_size
 
-        if(_offload_inference and inplace_safe):
+        if _offload_inference and inplace_safe:
             input_tensors = _offloadable_inputs
             del _offloadable_inputs
         else:
@@ -352,33 +362,35 @@ class E2EformerBlock(nn.Module):
 
         m, z = input_tensors
 
-        m = add(m,
-                self.msa_att_row(
-                    m, 
-                    z=z, 
-                    mask=msa_mask, 
-                    chunk_size=_attn_chunk_size,
+        m = add(
+            m,
+            self.msa_att_row(
+                m,
+                z=z,
+                mask=msa_mask,
+                chunk_size=_attn_chunk_size,
             ),
             inplace=inplace_safe,
         )
-        m = add(m, 
+        m = add(
+            m,
             self.msa_att_col(
-                m, 
-                mask=msa_mask, 
+                m,
+                mask=msa_mask,
                 chunk_size=chunk_size,
             ),
             inplace=inplace_safe,
         )
 
-        if(not inplace_safe):
+        if not inplace_safe:
             input_tensors = [m, input_tensors[1]]
-        
+
         del m, z
 
         m, z = self.core(
-            input_tensors, 
-            msa_mask=msa_mask, 
-            pair_mask=pair_mask, 
+            input_tensors,
+            msa_mask=msa_mask,
+            pair_mask=pair_mask,
             chunk_size=chunk_size,
             inplace_safe=inplace_safe,
             _mask_trans=_mask_trans,
@@ -467,12 +479,13 @@ class E2EformerStack(nn.Module):
 
         self.tune_chunk_size = tune_chunk_size
         self.chunk_size_tuner = None
-        if(tune_chunk_size):
+        if tune_chunk_size:
             self.chunk_size_tuner = ChunkSizeTuner()
 
-    def _prep_blocks(self, 
-        m: torch.Tensor, 
-        z: torch.Tensor, 
+    def _prep_blocks(
+        self,
+        m: torch.Tensor,
+        z: torch.Tensor,
         chunk_size: int,
         msa_mask: Optional[torch.Tensor],
         pair_mask: Optional[torch.Tensor],
@@ -491,30 +504,36 @@ class E2EformerStack(nn.Module):
             for b in self.blocks
         ]
 
-        if(chunk_size is not None and self.chunk_size_tuner is not None):
-            assert(not self.training)
+        if chunk_size is not None and self.chunk_size_tuner is not None:
+            assert not self.training
             tuned_chunk_size = self.chunk_size_tuner.tune_chunk_size(
                 representative_fn=blocks[0],
-                args=(m.clone(), z.clone(),),
+                args=(
+                    m.clone(),
+                    z.clone(),
+                ),
                 min_chunk_size=chunk_size,
             )
             blocks = [
-                partial(b, 
+                partial(
+                    b,
                     chunk_size=tuned_chunk_size,
                     _attn_chunk_size=max(chunk_size, tuned_chunk_size // 4),
-                ) for b in blocks
+                )
+                for b in blocks
             ]
 
         return blocks
 
-    def _forward_offload(self,
+    def _forward_offload(
+        self,
         input_tensors: Sequence[torch.Tensor],
         msa_mask: torch.Tensor,
         pair_mask: torch.Tensor,
         chunk_size: int,
         _mask_trans: bool = True,
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        assert(not (self.training or torch.is_grad_enabled()))
+        assert not (self.training or torch.is_grad_enabled())
         blocks = self._prep_blocks(
             m=input_tensors[0],
             z=input_tensors[1],
@@ -527,22 +546,23 @@ class E2EformerStack(nn.Module):
 
         for b in blocks:
             m, z = b(
-                None, 
-                None, 
+                None,
+                None,
                 _offload_inference=True,
                 _offloadable_inputs=input_tensors,
             )
             input_tensors[0] = m
             input_tensors[1] = z
             del m, z
-        
+
         m, z = input_tensors
-        
+
         s = self.linear(m[..., 0, :, :])
-        
+
         return m, z, s
 
-    def forward(self,
+    def forward(
+        self,
         m: torch.Tensor,
         z: torch.Tensor,
         msa_mask: torch.Tensor,
@@ -561,8 +581,8 @@ class E2EformerStack(nn.Module):
                 [*, N_seq, N_res] MSA mask
             pair_mask:
                 [*, N_res, N_res] pair mask
-            chunk_size: 
-                Inference-time subbatch size. Acts as a minimum if 
+            chunk_size:
+                Inference-time subbatch size. Acts as a minimum if
                 self.tune_chunk_size is True
         Returns:
             m:
@@ -571,7 +591,7 @@ class E2EformerStack(nn.Module):
                 [*, N_res, N_res, C_z] pair embedding
             s:
                 [*, N_res, C_s] single embedding (or None if extra MSA stack)
-        """ 
+        """
         blocks = self._prep_blocks(
             m=m,
             z=z,

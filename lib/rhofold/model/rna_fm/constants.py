@@ -4,11 +4,54 @@
 # LICENSE file in the root directory of this source tree.
 
 proteinseq_toks = {
-    'toks': ['L', 'A', 'G', 'V', 'S', 'E', 'R', 'T', 'I', 'D', 'P', 'K', 'Q', 'N', 'F', 'Y', 'M', 'H', 'W', 'C',
-             'X', 'B', 'U', 'Z', 'O', '.', '-']
+    "toks": [
+        "L",
+        "A",
+        "G",
+        "V",
+        "S",
+        "E",
+        "R",
+        "T",
+        "I",
+        "D",
+        "P",
+        "K",
+        "Q",
+        "N",
+        "F",
+        "Y",
+        "M",
+        "H",
+        "W",
+        "C",
+        "X",
+        "B",
+        "U",
+        "Z",
+        "O",
+        ".",
+        "-",
+    ]
 }
 
 rnaseq_toks = {
-    'toks': ['A', 'C', 'G', 'U', 'R', 'Y', 'K', 'M', 'S', 'W', 'B', 'D', 'H', 'V', 'N', '-']
+    "toks": [
+        "A",
+        "C",
+        "G",
+        "U",
+        "R",
+        "Y",
+        "K",
+        "M",
+        "S",
+        "W",
+        "B",
+        "D",
+        "H",
+        "V",
+        "N",
+        "-",
+    ]
 }
-

@@ -15,6 +15,7 @@ from rhofold.model.rna_fm.constants import proteinseq_toks, rnaseq_toks
 
 RawMSA = Sequence[Tuple[str, str]]
 
+
 class FastaBatchedDataset(object):
     def __init__(self, sequence_labels, sequence_strs):
         self.sequence_labels = list(sequence_labels)
@@ -105,7 +106,7 @@ class Alphabet(object):
         self.all_toks = list(self.prepend_toks)
         self.all_toks.extend(self.standard_toks)
         for i in range((8 - (len(self.all_toks) % 8)) % 8):
-            self.all_toks.append(f"<null_{i  + 1}>")
+            self.all_toks.append(f"<null_{i + 1}>")
         self.all_toks.extend(self.append_toks)
 
         self.tok_to_idx = {tok: i for i, tok in enumerate(self.all_toks)}
@@ -141,21 +142,27 @@ class Alphabet(object):
     @classmethod
     def from_architecture(cls, name: str, theme="protein") -> "Alphabet":
         if name in ("ESM-1", "protein_bert_base"):
-            standard_toks = proteinseq_toks["toks"] if theme == "protein" else rnaseq_toks["toks"]
+            standard_toks = (
+                proteinseq_toks["toks"] if theme == "protein" else rnaseq_toks["toks"]
+            )
             prepend_toks: Tuple[str, ...] = ("<null_0>", "<pad>", "<eos>", "<unk>")
             append_toks: Tuple[str, ...] = ("<cls>", "<mask>", "<sep>")
             prepend_bos = True
             append_eos = False
             use_msa = False
         elif name in ("ESM-1b", "roberta_large"):
-            standard_toks = proteinseq_toks["toks"] if theme == "protein" else rnaseq_toks["toks"]
+            standard_toks = (
+                proteinseq_toks["toks"] if theme == "protein" else rnaseq_toks["toks"]
+            )
             prepend_toks = ("<cls>", "<pad>", "<eos>", "<unk>")
             append_toks = ("<mask>",)
             prepend_bos = True
             append_eos = True
             use_msa = False
         elif name in ("MSA Transformer", "msa_transformer"):
-            standard_toks = proteinseq_toks["toks"] if theme == "protein" else rnaseq_toks["toks"]
+            standard_toks = (
+                proteinseq_toks["toks"] if theme == "protein" else rnaseq_toks["toks"]
+            )
             prepend_toks = ("<cls>", "<pad>", "<eos>", "<unk>")
             append_toks = ("<mask>",)
             prepend_bos = True
@@ -207,9 +214,9 @@ class BatchConverter(object):
                 + int(self.alphabet.prepend_bos),
             ] = seq
             if self.alphabet.append_eos:
-                tokens[
-                    i, len(seq_str) + int(self.alphabet.prepend_bos)
-                ] = self.alphabet.eos_idx
+                tokens[i, len(seq_str) + int(self.alphabet.prepend_bos)] = (
+                    self.alphabet.eos_idx
+                )
 
         return labels, strs, tokens
 
@@ -351,14 +358,14 @@ class ESMStructuralSplitDataset(torch.utils.data.Dataset):
         split_level,
         cv_partition,
         split,
-        root_path=os.path.expanduser('~/.cache/torch/data/my_esm'),
+        root_path=os.path.expanduser("~/.cache/torch/data/my_esm"),
         download=False,
     ):
         super().__init__()
         assert split in [
-            'train',
-            'valid',
-        ], "train_valid must be \'train\' or \'valid\'"
+            "train",
+            "valid",
+        ], "train_valid must be 'train' or 'valid'"
         self.root_path = root_path
         self.base_path = os.path.join(self.root_path, self.base_folder)
 
@@ -367,9 +374,9 @@ class ESMStructuralSplitDataset(torch.utils.data.Dataset):
             self.download()
 
         self.split_file = os.path.join(
-            self.base_path, 'splits', split_level, cv_partition, f'{split}.txt'
+            self.base_path, "splits", split_level, cv_partition, f"{split}.txt"
         )
-        self.pkl_dir = os.path.join(self.base_path, 'pkl')
+        self.pkl_dir = os.path.join(self.base_path, "pkl")
         self.names = []
         with open(self.split_file) as f:
             self.names = f.read().splitlines()
@@ -378,7 +385,7 @@ class ESMStructuralSplitDataset(torch.utils.data.Dataset):
         return len(self.names)
 
     def _check_exists(self) -> bool:
-        for (_, _, filename, _) in self.file_list:
+        for _, _, filename, _ in self.file_list:
             fpath = os.path.join(self.base_path, filename)
             if not os.path.exists(fpath) or not os.path.isdir(fpath):
                 return False
@@ -387,7 +394,7 @@ class ESMStructuralSplitDataset(torch.utils.data.Dataset):
     def download(self):
 
         if self._check_exists():
-            print('Files already downloaded and verified')
+            print("Files already downloaded and verified")
             return
 
         from torchvision.datasets.utils import download_url
@@ -408,16 +415,22 @@ class ESMStructuralSplitDataset(torch.utils.data.Dataset):
          - coords : np.array (3D coordinates)
         """
         name = self.names[idx]
-        pkl_fname = os.path.join(self.pkl_dir, name[1:3], f'{name}.pkl')
-        with open(pkl_fname, 'rb') as f:
+        pkl_fname = os.path.join(self.pkl_dir, name[1:3], f"{name}.pkl")
+        with open(pkl_fname, "rb") as f:
             obj = pickle.load(f)
         return obj
 
 
-def get_rna_fm_token(fas_path,
-                     batch_converter=Alphabet.from_architecture('ESM-1b', theme="rna").get_batch_converter()):
+def get_rna_fm_token(
+    fas_path,
+    batch_converter=Alphabet.from_architecture(
+        "ESM-1b", theme="rna"
+    ).get_batch_converter(),
+):
 
-    nucl_dict = SeqIO.to_dict(SeqIO.parse(fas_path, "fasta"), key_function=lambda rec: rec.description)
+    nucl_dict = SeqIO.to_dict(
+        SeqIO.parse(fas_path, "fasta"), key_function=lambda rec: rec.description
+    )
     data = [[key, nucl_dict[key].seq] for key in nucl_dict.keys()]
     _, _, batch_tokens = batch_converter(data)
     # remove [cls] token in msa_batch_tokens
@@ -429,16 +442,18 @@ def get_rna_fm_token(fas_path,
 def get_fm_token_from_seq(seq_dict):
     """
     Get the RNA-FM tokens from the input sequences.
-    
+
     Args:
         seq_dict (dict): A dictionary containing the sequence names and strings.
-    
+
     Returns:
         torch.Tensor: The RNA-FM tokens, shape (batch_size, max_seq_len).
     """
-    
-    batch_converter=Alphabet.from_architecture('ESM-1b', theme='rna').get_batch_converter()
-    
+
+    batch_converter = Alphabet.from_architecture(
+        "ESM-1b", theme="rna"
+    ).get_batch_converter()
+
     # seq_dict = SeqIO.to_dict(SeqIO.parse(fasta_path, 'fasta'), key_function=lambda rec: rec.description)
     data = [(k, v) for k, v in seq_dict.items()]
     _, _, batch_tokens = batch_converter(data)

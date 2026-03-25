@@ -11,6 +11,7 @@
 # limitations under the License.
 
 """Structure refinement"""
+
 import os.path
 
 from openmm.app import *
@@ -22,8 +23,10 @@ from rhofold.utils import timing, tmpdir
 import subprocess
 import shutil
 
+
 class AmberRelaxation(object):
     """Amber relaxation."""
+
     def __init__(
         self,
         *,
@@ -42,64 +45,73 @@ class AmberRelaxation(object):
         self.logger = logger
 
         if self._use_gpu:
-            self.platform = mm.Platform.getPlatformByName('CUDA')
+            self.platform = mm.Platform.getPlatformByName("CUDA")
             self.logger.info("    AmberRelaxation: Using GPU")
         else:
             try:
-                self.platform = mm.Platform.getPlatformByName('OpenCL')
+                self.platform = mm.Platform.getPlatformByName("OpenCL")
                 self.logger.info("    AmberRelaxation: Using OpenCL")
             except:
                 self.platform = None
                 self.logger.info("    AmberRelaxation: Using CPU")
 
-    def process( self, pdbin, pdbout):
+    def process(self, pdbin, pdbout):
         """Runs Amber relax on a prediction, adds hydrogens, returns PDB string."""
 
-        with tmpdir(base_dir=f'{os.path.dirname(pdbout)}') as tmp_dir:
-
+        with tmpdir(base_dir=f"{os.path.dirname(pdbout)}") as tmp_dir:
             pdbin_tmp = os.path.join(tmp_dir, os.path.basename(pdbin))
             pdbout_tmp = os.path.join(tmp_dir, os.path.basename(pdbout))
 
             self._rewrite_pdb(pdbin, pdbin_tmp)
-            self._run_amber_relax(pdbin_tmp,  pdbout_tmp)
+            self._run_amber_relax(pdbin_tmp, pdbout_tmp)
             self._rewrite_pdb_rm_H(pdbout_tmp, pdbout)
 
-            self.logger.info('    Export PDB file to %s' % pdbout)
-
+            self.logger.info("    Export PDB file to %s" % pdbout)
 
     def _run_amber_relax(self, pdbin, pdbout):
-        '''
+        """
         Run AMBER relaxation
-        '''
+        """
 
         pdb = PDBFile(pdbin)
 
         modeller = Modeller(pdb.topology, pdb.positions)
 
-        forcefield = ForceField('amber14-all.xml', 'amber14/tip3pfb.xml')
+        forcefield = ForceField("amber14-all.xml", "amber14/tip3pfb.xml")
         modeller.addHydrogens(forcefield)
 
         modeller.addSolvent(forcefield, padding=1 * nanometer)
 
-        system = forcefield.createSystem(modeller.topology, nonbondedMethod=NoCutoff, nonbondedCutoff=1 * nanometer,
-                                         constraints=HBonds)
+        system = forcefield.createSystem(
+            modeller.topology,
+            nonbondedMethod=NoCutoff,
+            nonbondedCutoff=1 * nanometer,
+            constraints=HBonds,
+        )
 
-        integrator = LangevinIntegrator(300 * kelvin, 1 / picosecond, 0.002 * picoseconds)
+        integrator = LangevinIntegrator(
+            300 * kelvin, 1 / picosecond, 0.002 * picoseconds
+        )
 
         simulation = Simulation(modeller.topology, system, integrator, self.platform)
         simulation.context.setPositions(modeller.positions)
-        simulation.reporters.append(StateDataReporter(stdout, 1000, step=True, potentialEnergy=True, temperature=True))
+        simulation.reporters.append(
+            StateDataReporter(
+                stdout, 1000, step=True, potentialEnergy=True, temperature=True
+            )
+        )
         self.logger.info("    Minimizing ...")
 
         simulation.minimizeEnergy(maxIterations=self._max_iterations)
         position = simulation.context.getState(getPositions=True).getPositions()
         energy = simulation.context.getState(getEnergy=True).getPotentialEnergy()
-        app.PDBFile.writeFile(simulation.topology, position, open(pdbout, 'w'))
-        self.logger.info('    Energy at Minima is %3.3f kcal/mol' % (energy._value * KcalPerKJ))
-
+        app.PDBFile.writeFile(simulation.topology, position, open(pdbout, "w"))
+        self.logger.info(
+            "    Energy at Minima is %3.3f kcal/mol" % (energy._value * KcalPerKJ)
+        )
 
     def _rewrite_pdb(self, inp_fpath, out_fpath):
-        tofile = open(out_fpath, 'w')
+        tofile = open(out_fpath, "w")
 
         with open(inp_fpath) as lines:
             lines = lines.readlines()
@@ -118,29 +130,31 @@ class AmberRelaxation(object):
 
                     l = list(l)
                     if resindx_int == resinidexs[0]:
-                        l[18:20] = l[19:20] + ['5']
+                        l[18:20] = l[19:20] + ["5"]
                     elif resindx_int == resinidexs[-1]:
-                        l[18:20] = l[19:20] + ['3']
-                    nl = ''.join(l)
+                        l[18:20] = l[19:20] + ["3"]
+                    nl = "".join(l)
                     if not ("P" in atomn and resindx_int == 1):
                         tofile.write(nl)
         tofile.close()
 
     def _rewrite_pdb_rm_H(self, inp_fpath, out_fpath):
-        tofile = open(out_fpath, 'w')
+        tofile = open(out_fpath, "w")
 
         with open(inp_fpath) as lines:
             for l in lines:
                 if len(l.split()) > 5 and l.split()[0] == "ATOM":
                     atomn = l.split()[2]
-                    if 'H' in atomn:
+                    if "H" in atomn:
                         continue
                     tofile.write(l)
 
         tofile.close()
 
+
 class QRNASRelaxation(object):
     """Amber relaxation."""
+
     def __init__(
         self,
         *,
@@ -161,18 +175,16 @@ class QRNASRelaxation(object):
         self.logger = logger
         os.environ["QRNAS_FF_DIR"] = forcefield_path
 
-
-    def process( self, pdbin, pdbout, is_fix = True):
+    def process(self, pdbin, pdbout, is_fix=True):
         """Runs QRNAS relax on a prediction."""
 
-        with tmpdir(base_dir=f'{os.path.dirname(pdbout)}') as tmp_dir:
+        with tmpdir(base_dir=f"{os.path.dirname(pdbout)}") as tmp_dir:
+            config = os.path.join(tmp_dir, "configfile.txt")
 
-            config = os.path.join(tmp_dir, 'configfile.txt')
-
-            with open(config, 'w') as f:
-                f.write(f'WRITEFREQ  1000\n')
-                f.write(f'NSTEPS     {self._max_iterations}\n')
-                f.write(f'NUMTHREADS 16\n')
+            with open(config, "w") as f:
+                f.write(f"WRITEFREQ  1000\n")
+                f.write(f"NSTEPS     {self._max_iterations}\n")
+                f.write(f"NUMTHREADS 16\n")
 
             pdbin_tmp = os.path.join(tmp_dir, os.path.basename(pdbin))
             pdbout_tmp = os.path.join(tmp_dir, os.path.basename(pdbout))
@@ -180,34 +192,43 @@ class QRNASRelaxation(object):
 
             cmd = [
                 self.binary_path,
-                '-P', '-i', pdbin_tmp,
-                '-o', pdbout_tmp,
-                '-c', config
+                "-P",
+                "-i",
+                pdbin_tmp,
+                "-o",
+                pdbout_tmp,
+                "-c",
+                config,
             ]
 
-            self.logger.info('Launching subprocess "%s"', ' '.join(cmd))
+            self.logger.info('Launching subprocess "%s"', " ".join(cmd))
             process = subprocess.Popen(
-                cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+            )
 
-            with timing(f'QRNAS iterations: {self._max_iterations}', logger=self.logger):
+            with timing(
+                f"QRNAS iterations: {self._max_iterations}", logger=self.logger
+            ):
                 stdout, stderr = process.communicate()
                 retcode = process.wait()
 
             if retcode:
                 # Logs have a 15k character limit, so log QRNAS error line by line.
-                self.logger.error('QRNAS failed. QRNAS stderr begin:')
-                for error_line in stderr.decode('utf-8').splitlines():
+                self.logger.error("QRNAS failed. QRNAS stderr begin:")
+                for error_line in stderr.decode("utf-8").splitlines():
                     if error_line.strip():
                         self.logger.error(error_line.strip())
-                self.logger.error('QRNAS stderr end')
-                raise RuntimeError('QRNAS failed\nstdout:\n%s\n\nstderr:\n%s\n' % (
-                    stdout.decode('utf-8'), stderr[:500_000].decode('utf-8')))
+                self.logger.error("QRNAS stderr end")
+                raise RuntimeError(
+                    "QRNAS failed\nstdout:\n%s\n\nstderr:\n%s\n"
+                    % (stdout.decode("utf-8"), stderr[:500_000].decode("utf-8"))
+                )
 
             self._rewrite_pdb_rm_H(pdbout_tmp, pdbout)
 
-            self.logger.info('Export PDB file to %s' % pdbout)
+            self.logger.info("Export PDB file to %s" % pdbout)
 
-    def _rewrite_pdb_occupancy(self, inp_fpath, out_fpath, is_fix = True):
+    def _rewrite_pdb_occupancy(self, inp_fpath, out_fpath, is_fix=True):
         """
 
         Rewrite PDB occupancy for fixing atom in QRNAS refinement
@@ -223,7 +244,7 @@ class QRNASRelaxation(object):
 
         """
 
-        tofile = open(out_fpath, 'w')
+        tofile = open(out_fpath, "w")
 
         with open(inp_fpath) as lines:
             lines = lines.readlines()
@@ -243,29 +264,31 @@ class QRNASRelaxation(object):
 
                     # fixed C1' atom
                     if is_fix and "C1'" in atomn:
-                        l[56:60] = list('0.00')
+                        l[56:60] = list("0.00")
 
-                    nl = ''.join(l)
+                    nl = "".join(l)
                     if not ("P" in atomn and resindx_int == 1):
                         tofile.write(nl)
 
         tofile.close()
 
     def _rewrite_pdb_rm_H(self, inp_fpath, out_fpath):
-        tofile = open(out_fpath, 'w')
+        tofile = open(out_fpath, "w")
 
         with open(inp_fpath) as lines:
             for l in lines:
                 if len(l.split()) > 5 and l.split()[0] == "ATOM":
                     atomn = l.split()[2]
-                    if 'H' in atomn:
+                    if "H" in atomn:
                         continue
                     tofile.write(l)
 
         tofile.close()
 
+
 class BRIQRelaxation(object):
     """Amber relaxation."""
+
     def __init__(
         self,
         *,
@@ -286,92 +309,101 @@ class BRIQRelaxation(object):
         self.random_seed = random_seed
         self.logger = logger
 
-    def process(self, pdbin, pdbout, BRIQ_input = None, fix_non_paring_region = False):
+    def process(self, pdbin, pdbout, BRIQ_input=None, fix_non_paring_region=False):
         """Runs BRIQ relax on a prediction"""
 
-        with tmpdir(base_dir=f'{os.path.dirname(pdbout)}') as tmp_dir:
+        with tmpdir(base_dir=f"{os.path.dirname(pdbout)}") as tmp_dir:
             pdbin_tmp = os.path.join(tmp_dir, os.path.basename(pdbin))
             pdbout_tmp = os.path.join(tmp_dir, os.path.basename(pdbout))
 
             shutil.copyfile(pdbin, pdbin_tmp)
 
             if BRIQ_input is None:
-                ss_tmp = pdbin_tmp.replace('.pdb', '.ss')
-                cmd = [
-                    f'{self.binary_dpath}/BRiQ_AssignSS',
-                    pdbin_tmp,
-                    ss_tmp
-                ]
+                ss_tmp = pdbin_tmp.replace(".pdb", ".ss")
+                cmd = [f"{self.binary_dpath}/BRiQ_AssignSS", pdbin_tmp, ss_tmp]
 
                 # Assign SS based on input PDB
-                self.logger.info('Launching subprocess "%s"', ' '.join(cmd))
+                self.logger.info('Launching subprocess "%s"', " ".join(cmd))
                 process = subprocess.Popen(
-                    cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                    cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+                )
                 stdout, stderr = process.communicate()
                 retcode = process.wait()
 
                 if retcode:
-                    self.logger.error('BRIQ_AssignSS failed. BRIQ_AssignSS stderr begin:')
-                    for error_line in stderr.decode('utf-8').splitlines():
+                    self.logger.error(
+                        "BRIQ_AssignSS failed. BRIQ_AssignSS stderr begin:"
+                    )
+                    for error_line in stderr.decode("utf-8").splitlines():
                         if error_line.strip():
                             self.logger.error(error_line.strip())
-                    self.logger.error('BRIQ_AssignSS stderr end')
-                    raise RuntimeError('BRIQ_AssignSS failed\nstdout:\n%s\n\nstderr:\n%s\n' % (
-                        stdout.decode('utf-8'), stderr[:500_000].decode('utf-8')))
+                    self.logger.error("BRIQ_AssignSS stderr end")
+                    raise RuntimeError(
+                        "BRIQ_AssignSS failed\nstdout:\n%s\n\nstderr:\n%s\n"
+                        % (stdout.decode("utf-8"), stderr[:500_000].decode("utf-8"))
+                    )
 
                 # generate BRIQ input file
-                BRIQ_input = os.path.join(tmp_dir, 'input')
+                BRIQ_input = os.path.join(tmp_dir, "input")
 
-                with open(ss_tmp, 'r') as f:
+                with open(ss_tmp, "r") as f:
                     lines = f.readlines()
 
-                with open(BRIQ_input,'w') as f:
-                    f.write(f'pdb {pdbin_tmp}\n')
+                with open(BRIQ_input, "w") as f:
+                    f.write(f"pdb {pdbin_tmp}\n")
                     f.writelines(lines)
                     if fix_non_paring_region:
                         wc = lines[1].strip().split()[1]
                         nwc = lines[2].strip().split()[1]
-                        self.logger.info(f'sec {wc}')
-                        self.logger.info(f'nwc {nwc}')
-                        non_paring_indexs = [str(i) for i in range(len(wc)) if wc[i] == '.' and nwc[i] == '.']
-                        non_paring_indexs = ' '.join(non_paring_indexs)
-                        f.write(f'fixed {non_paring_indexs}\n')
+                        self.logger.info(f"sec {wc}")
+                        self.logger.info(f"nwc {nwc}")
+                        non_paring_indexs = [
+                            str(i)
+                            for i in range(len(wc))
+                            if wc[i] == "." and nwc[i] == "."
+                        ]
+                        non_paring_indexs = " ".join(non_paring_indexs)
+                        f.write(f"fixed {non_paring_indexs}\n")
 
-            cmd = [f'{self.binary_dpath}/BRiQ_Refinement',
-                    BRIQ_input,
-                    pdbout_tmp,
-                    str(self.random_seed)
+            cmd = [
+                f"{self.binary_dpath}/BRiQ_Refinement",
+                BRIQ_input,
+                pdbout_tmp,
+                str(self.random_seed),
             ]
 
-            self.logger.info('Launching subprocess "%s"', ' '.join(cmd))
+            self.logger.info('Launching subprocess "%s"', " ".join(cmd))
             process = subprocess.Popen(
-                cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+            )
 
-            with timing(f'BRIQ Refinement', logger=self.logger):
+            with timing(f"BRIQ Refinement", logger=self.logger):
                 stdout, stderr = process.communicate()
                 retcode = process.wait()
 
             if retcode:
                 # Logs have a 15k character limit, so log BRIQ error line by line.
-                self.logger.error('BRIQ  Refinement failed. BRIQ stderr begin:')
-                for error_line in stderr.decode('utf-8').splitlines():
+                self.logger.error("BRIQ  Refinement failed. BRIQ stderr begin:")
+                for error_line in stderr.decode("utf-8").splitlines():
                     if error_line.strip():
                         self.logger.error(error_line.strip())
-                self.logger.error('BRIQ Refinement stderr end')
-                raise RuntimeError('BRIQ Refinement failed\nstdout:\n%s\n\nstderr:\n%s\n' % (
-                    stdout.decode('utf-8'), stderr[:500_000].decode('utf-8')))
+                self.logger.error("BRIQ Refinement stderr end")
+                raise RuntimeError(
+                    "BRIQ Refinement failed\nstdout:\n%s\n\nstderr:\n%s\n"
+                    % (stdout.decode("utf-8"), stderr[:500_000].decode("utf-8"))
+                )
 
             self._rewrite_pdb_rm_H(pdbout_tmp, pdbout)
-            self.logger.info('Export PDB file to %s' % pdbout)
+            self.logger.info("Export PDB file to %s" % pdbout)
 
     def _rewrite_pdb_rm_H(self, inp_fpath, out_fpath):
-        tofile = open(out_fpath, 'w')
+        tofile = open(out_fpath, "w")
 
         with open(inp_fpath) as lines:
             for l in lines:
                 if len(l.split()) > 5 and l.split()[0] == "ATOM":
                     atomn = l.split()[2]
-                    if 'H' in atomn:
+                    if "H" in atomn:
                         continue
                     tofile.write(l)
 

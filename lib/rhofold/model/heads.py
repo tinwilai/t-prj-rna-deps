@@ -14,6 +14,7 @@ import torch
 import torch.nn as nn
 from rhofold.utils import default
 
+
 class LayerNorm(nn.Module):
     def __init__(self, d_model, eps=1e-5):
         super(LayerNorm, self).__init__()
@@ -25,21 +26,23 @@ class LayerNorm(nn.Module):
 
         mean = x.mean(-1, keepdim=True)
         std = torch.sqrt(x.var(dim=-1, keepdim=True, unbiased=False) + self.eps)
-        x = self.a_2*(x-mean)
+        x = self.a_2 * (x - mean)
         x /= std
         x += self.b_2
 
         return x
 
+
 class FeedForwardLayer(nn.Module):
-    def __init__(self,
-                 d_model,
-                 d_ff,
-                 p_drop = 0.1,
-                 d_model_out = None,
-                 is_post_act_ln = False,
-                 **unused,
-                 ):
+    def __init__(
+        self,
+        d_model,
+        d_ff,
+        p_drop=0.1,
+        d_model_out=None,
+        is_post_act_ln=False,
+        **unused,
+    ):
 
         super(FeedForwardLayer, self).__init__()
         d_model_out = default(d_model_out, d_model)
@@ -50,25 +53,27 @@ class FeedForwardLayer(nn.Module):
         self.activation = nn.ReLU()
 
     def forward(self, src):
-        src = self.linear2(self.dropout(self.post_act_ln(self.activation(self.linear1(src)))))
+        src = self.linear2(
+            self.dropout(self.post_act_ln(self.activation(self.linear1(src))))
+        )
         return src
 
 
 class DistHead(nn.Module):
-    def __init__(self,
-                 c_in,
-                 no_bins=40,
-                 **kwargs):
+    def __init__(self, c_in, no_bins=40, **kwargs):
         super(DistHead, self).__init__()
         self.norm = LayerNorm(c_in)
         self.proj = nn.Linear(c_in, c_in)
 
-        self.resnet_dist_0 = FeedForwardLayer(d_model=c_in, d_ff=c_in * 4, d_model_out=no_bins,
-                                            **kwargs)
-        self.resnet_dist_1 = FeedForwardLayer(d_model=c_in, d_ff=c_in * 4, d_model_out=no_bins,
-                                            **kwargs)
-        self.resnet_dist_2 = FeedForwardLayer(d_model=c_in, d_ff=c_in * 4, d_model_out=no_bins,
-                                            **kwargs)
+        self.resnet_dist_0 = FeedForwardLayer(
+            d_model=c_in, d_ff=c_in * 4, d_model_out=no_bins, **kwargs
+        )
+        self.resnet_dist_1 = FeedForwardLayer(
+            d_model=c_in, d_ff=c_in * 4, d_model_out=no_bins, **kwargs
+        )
+        self.resnet_dist_2 = FeedForwardLayer(
+            d_model=c_in, d_ff=c_in * 4, d_model_out=no_bins, **kwargs
+        )
 
     def forward(self, x):
 
@@ -81,15 +86,15 @@ class DistHead(nn.Module):
 
         return logits_dist0, logits_dist1, logits_dist2
 
+
 class SSHead(nn.Module):
-    def __init__(self,
-                 c_in,
-                 no_bins=1,
-                 **kwargs):
+    def __init__(self, c_in, no_bins=1, **kwargs):
         super(SSHead, self).__init__()
         self.norm = LayerNorm(c_in)
         self.proj = nn.Linear(c_in, c_in)
-        self.ffn = FeedForwardLayer(d_model=c_in, d_ff = c_in*4, d_model_out=no_bins, **kwargs)
+        self.ffn = FeedForwardLayer(
+            d_model=c_in, d_ff=c_in * 4, d_model_out=no_bins, **kwargs
+        )
 
     def forward(self, x):
 
@@ -100,8 +105,9 @@ class SSHead(nn.Module):
 
         return logits
 
+
 class pLDDTHead(nn.Module):
-    def __init__(self, c_in, no_bins = 50):
+    def __init__(self, c_in, no_bins=50):
         super(pLDDTHead, self).__init__()
 
         self.bin_vals = (torch.arange(no_bins).view(1, 1, -1) + 0.5) / no_bins
@@ -126,4 +132,4 @@ class pLDDTHead(nn.Module):
 
         plddt_global = torch.mean(plddt_local, dim=1)
 
-        return  plddt_local,  plddt_global
+        return plddt_local, plddt_global
